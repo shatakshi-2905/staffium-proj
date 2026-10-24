@@ -1,4 +1,4 @@
-# Shortlist
+# Staffium AI
 
 An applicant tracking system with AI resume screening, built database-first on PostgreSQL.
 
