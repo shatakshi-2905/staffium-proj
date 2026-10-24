@@ -110,7 +110,12 @@ SKILL_ALIASES = {
     "ms excel": "Excel", "microsoft excel": "Excel", "tailwind": "Tailwind CSS", "html5": "HTML", "css3": "CSS",
     "springboot": "Spring Boot", "spring": "Spring Boot", "dotnet": "ASP.NET", ".net": "ASP.NET",
     "github actions": "GitHub Actions", "mssql": "SQL Server", "dynamo db": "DynamoDB", "elastic search": "Elasticsearch",
+    "dockerized": "Docker", "dockerised": "Docker", "kubernetes cluster": "Kubernetes", "postgre": "PostgreSQL",
 }
+
+# Aliases safe to look for in free text (the short ones above, like "js" or "ml", are too ambiguous).
+_TEXT_ALIASES = {k: v for k, v in SKILL_ALIASES.items()
+                 if len(k) >= 4 and k not in {"node", "rest", "spring", "express", "lambda", "transformers", "vue", "tf"}} | {"k8s": "Kubernetes"}
 
 # Names that are also everyday words/letters: never scanned from raw text, only accepted when the
 # structured extraction lists them explicitly.
@@ -129,15 +134,32 @@ def normalize_skill(raw: str, dictionary: dict[str, int]) -> int | None:
     return dictionary.get(alias.lower()) if alias else None
 
 
+def _mentions(term: str, lower_text: str) -> bool:
+    return re.search(r"(?<![a-z0-9+#.])" + re.escape(term) + r"(?![a-z0-9+#])", lower_text) is not None
+
+
 def scan_text_for_skills(text: str, dictionary: dict[str, int]) -> set[int]:
+    """Dictionary skills mentioned in free text, including common aliases ("Postgres", "k8s", "Python3")."""
     found: set[int] = set()
     lower = text.lower()
     for name, skill_id in dictionary.items():
         if name in _AMBIGUOUS or len(name) < 2:
             continue
-        if re.search(r"(?<![a-z0-9+#.])" + re.escape(name) + r"(?![a-z0-9+#])", lower):
+        if _mentions(name, lower):
             found.add(skill_id)
+    for alias, canonical in _TEXT_ALIASES.items():
+        sid = dictionary.get(canonical.lower())
+        if sid and sid not in found and _mentions(alias, lower):
+            found.add(sid)
     return found
+
+
+_SKILL_LIST_LINE = re.compile(r"^\s*(technical\s+)?(skills|technologies|tech stack|tools)\s*[:|-]", re.I)
+
+
+def without_skill_lists(text: str) -> str:
+    """The resume minus its 'Skills:' style lines: what's left is where skills are *used*."""
+    return "\n".join(line for line in text.splitlines() if not _SKILL_LIST_LINE.match(line))
 
 
 # --- Rule-based fallback extraction (used when the LLM is unavailable) ------------------------------------
@@ -149,7 +171,14 @@ _DEGREE_RE = re.compile(r"\b(B\.?\s?Tech|B\.?\s?E\.?|B\.?\s?Sc|BCA|MCA|M\.?\s?Te
 
 
 _RANGE_RE = re.compile(r"\b((?:19|20)\d{2})\s*(?:-|\u2013|\u2014|to)\s*((?:19|20)\d{2}|present|current|now|date)\b", re.I)
-_EDU_WORDS = re.compile(r"b\.?\s?tech|b\.?\s?e\b|bca|mca|m\.?\s?tech|m\.?\s?sc|b\.?\s?sc|mba|ph\.?d|universit|college|institute|school|degree|bachelor|master|iit|nit", re.I)
+_SINCE_RE = re.compile(r"\bsince\s+((?:19|20)\d{2})\b", re.I)
+# Whole words only: the earlier substring version matched "nit" inside "monitoring" and "unit tests",
+# and so silently dropped real work history from the experience total (found by eval/run_eval.py).
+_EDU_WORDS = re.compile(
+    r"(?<![a-z])(b\.?\s?tech|b\.e\.?|bca|mca|m\.?\s?tech|m\.?\s?sc|b\.?\s?sc|b\.?\s?com|bba|mba|ph\.?\s?d|"
+    r"universit(y|ies)|college|institute|school|degree|bachelor'?s?|masters|master of|iit|nit|iisc|bits pilani)(?![a-z])", re.I)
+# Career breaks, sabbaticals etc. are not work experience (also found by the evaluation).
+_BREAK_WORDS = re.compile(r"(?<![a-z])(career break|sabbatical|employment gap|gap year|break from work)(?![a-z])", re.I)
 
 
 def _years_from_date_ranges(text: str) -> float | None:
@@ -157,13 +186,18 @@ def _years_from_date_ranges(text: str) -> float | None:
     this_year = date.today().year
     spans = []
     for line in text.splitlines():
-        if _EDU_WORDS.search(line):
+        if _EDU_WORDS.search(line) or _BREAK_WORDS.search(line):
             continue
         for m in _RANGE_RE.finditer(line):
             start = int(m.group(1))
             end = this_year if not m.group(2).isdigit() else int(m.group(2))
             if 1970 <= start <= end <= this_year:
                 spans.append((start, end))
+        if not _RANGE_RE.search(line):
+            for m in _SINCE_RE.finditer(line):            # "at Payly since 2020"
+                start = int(m.group(1))
+                if 1970 <= start <= this_year:
+                    spans.append((start, this_year))
     if not spans:
         return None
     spans.sort()
@@ -199,6 +233,23 @@ def rule_based_extract(text: str) -> dict:
         "summary": None,
         "extracted_by": "rules",
     }
+
+
+_URL_RE = re.compile(r"(https?://\S+|www\.\S+|\b[\w-]+\.(?:com|in|io|dev|me|org)/\S*)", re.I)
+
+
+def embedding_text(text: str, redact: list[str] | None = None) -> str:
+    """Resume text for the semantic embedding, with everything that should not affect job fit removed:
+    names, contact details, links, location, education lines (institution prestige) and career-break
+    lines. The counterfactual tests in eval/ check that changing these leaves the score unchanged."""
+    lines = [ln for ln in text.splitlines() if not _EDU_WORDS.search(ln) and not _BREAK_WORDS.search(ln)]
+    out = "\n".join(lines)
+    out = _EMAIL_RE.sub(" ", out)
+    out = _URL_RE.sub(" ", out)
+    out = _PHONE_RE.sub(" ", out)
+    for term in sorted({t.strip() for t in (redact or []) if t and len(t.strip()) >= 2}, key=len, reverse=True):
+        out = re.sub(r"(?<![\w])" + re.escape(term) + r"(?![\w])", " ", out, flags=re.I)
+    return re.sub(r"[ \t]+", " ", out).strip()
 
 
 def parse_month(value) -> date | None:

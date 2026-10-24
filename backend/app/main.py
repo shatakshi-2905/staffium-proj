@@ -16,7 +16,7 @@ from starlette.responses import JSONResponse
 from . import db
 from .config import get_settings
 from .errors import install_error_handlers
-from .routers import applicant, applications, auth, common, companies, jobs, recruiter, recruiter_ops, resumes
+from .routers import applicant, applications, auth, common, companies, jobs, recruiter, recruiter_ops, resumes, reviews
 from .security import BodySizeLimitMiddleware, SecurityHeadersMiddleware, limiter
 from .services import embeddings, worker
 
@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
     app.add_middleware(BodySizeLimitMiddleware, upload_paths=("/api/resumes",))
     app.add_middleware(SecurityHeadersMiddleware)
 
-    for r in (auth, common, applicant, resumes, jobs, applications, companies, recruiter, recruiter_ops):
+    for r in (auth, common, applicant, resumes, jobs, applications, companies, recruiter, recruiter_ops, reviews):
         app.include_router(r.router)
 
     @app.get("/api/health", include_in_schema=False)

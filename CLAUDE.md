@@ -7,6 +7,7 @@ DBMS college project, also a portfolio piece: database design and security quali
 - `database/migrations/*.sql`: schema, functions, views, triggers, RLS. Applied by `database/migrate.py`.
 - `backend/`: FastAPI. `app/routers/` (HTTP), `app/services/` (S3, Bedrock, embeddings, ranking, email worker).
 - `frontend/`: static HTML/CSS + vanilla JS ES modules. No framework, no build step. Hosted separately from the API.
+- `eval/`: ranking quality + fairness evaluation (`run_eval.py`, labelled `dataset.py`, `reports/`).
 - `docs/technical-design.md`: the design document (source of truth for scope).
 
 ## Commands
@@ -29,3 +30,6 @@ DBMS college project, also a portfolio piece: database design and security quali
 - Frontend: never use `innerHTML`; build DOM with `h()` from `assets/js/ui.js`. No inline scripts, no CDNs (strict CSP).
 - UI style: Supabase-like dark theme. Use tokens in `theme.css`; borders not shadows; accent only for primary actions.
 - Add or update tests in `backend/tests/` for every behaviour change, and run them before saying something works.
+- Any change to parsing, embeddings or ranking: run `eval/run_eval.py` and compare with `eval/reports/02-after-fixes.md`.
+  Name, city, college and career-break twins must keep a score change of 0.
+- Never add personal or demographic data to embeddings or LLM prompts (`parsing.embedding_text` strips it).

@@ -1,22 +1,23 @@
-# Secrets
+# secrets
 .env
 .env.*
 !.env.example
-
-# Python
+*.pem
+# python
 __pycache__/
-*.py[cod]
+*.pyc
 .venv/
 venv/
-
-# Node
-node_modules/
-
-# Build files
-dist/
-build/
-
-# macOS / IDE
+.pytest_cache/
+# embedding model cache
+.models/
+# editors / OS
 .DS_Store
-.vscode/
 .idea/
+.vscode/
+
+# personal Claude Code settings
+.claude/settings.local.json
+
+# ad-hoc evaluation runs (the baseline and after-fixes reports are committed)
+eval/reports/eval-*

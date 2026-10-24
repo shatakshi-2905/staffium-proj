@@ -1,4 +1,4 @@
-# Staffium AI
+# Shortlist
 
 An applicant tracking system with AI resume screening, built database-first on PostgreSQL.
 
@@ -6,11 +6,15 @@ Applicants build a profile and upload a resume once; it's parsed, embedded and s
 post jobs, rank applicants with a three-stage pipeline (pgvector + full-text retrieval, SQL filters,
 Amazon Bedrock Nova re-ranking), run interviews with calendar invites, and send offers. Every
 rejected applicant keeps a persisted explanation of what the role needed and how to close the gap.
+Applicants can dispute a screening (wrong extracted data, or a request for a human review) and the
+outcome is recorded with the score before and after. An evaluation harness measures ranking quality
+and counterfactual fairness on labelled data.
 
 ```
 frontend/  static site (HTML, CSS, vanilla JS modules) ......... hosted separately (Render static site)
 backend/   FastAPI API + background worker ....................... Render web service
 database/  versioned SQL migrations, migration runner ........... Supabase Postgres
+eval/      ranking quality + fairness evaluation, labelled dataset, reports
 scripts/   demo data loader
 ```
 
@@ -139,7 +143,7 @@ docker run -d --name ats-test -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ats_t
 DATABASE_URL=postgresql://postgres:postgres@localhost/ats_test python database/migrate.py --local
 cd backend && TEST_DATABASE_URL=postgresql://postgres:postgres@localhost/ats_test pytest -q
 ```
-`--local` adds a stand-in `auth.users` table; never use it against Supabase. 19 tests cover the
+`--local` adds a stand-in `auth.users` table; never use it against Supabase. 24 tests cover the
 hiring flow end to end, triggers, constraints, RLS isolation, column privileges, token forgery,
 portal mismatch, rate limits, upload attacks, headers/CORS and LLM output validation.
 
@@ -178,10 +182,40 @@ embedding model loads. Open the site a minute before you demo.
 | JSONB | `parsed_data`, `strengths`, `missing_skills`, `search_history.filters/results`, outbox payloads |
 | Vector search | HNSW indexes on `resume_embeddings` / `job_embeddings`, cosine distance `<=>` |
 | RLS + roles | `005_security.sql` |
+| Human-in-the-loop review | `007_screening_reviews.sql`: request state machine as data, column-level INSERT grants, one-open-request partial unique index, outcome constraints (an override needs a score and a reason), AI vs human score kept side by side (`effective_score` generated column) |
+| Evaluation results | `008_evaluation.sql`: runs, metrics and findings stored relationally so quality can be tracked across runs with SQL |
+
+## Screening review workflow
+
+Applicants can, per application, **report wrong information** (skills, years of experience,
+education, work history) or **ask for a human review** of the decision. A recruiter at the hiring
+company picks it up and records one outcome, with a note the candidate sees:
+
+| Outcome | Effect |
+|---|---|
+| Upheld | Nothing changes; the note explains why |
+| Re-screened | The application is scored again on the candidate's current profile, in the same transaction |
+| Overridden | The recruiter sets a score; the AI score is kept beside it and the pipeline ranks by the human one |
+| Reinstated | A rejected application returns to screening; its rejection feedback is removed |
+
+Every step (requested, started, resolved, withdrawn) is written to `audit_logs` by a trigger with the
+score before and after, so disagreement between the model and people can be measured. Only the
+hiring company sees a request (RLS), there's one open request of each kind per application and three
+in total, and nothing submitted can be edited afterwards.
+
+## Evaluation
+
+`eval/run_eval.py` loads 18 labelled resumes and 40 counterfactual twins through the real API into a
+throwaway database and reports retrieval and ranking quality, what each stage contributes, every
+false negative with its cause, and whether a name, city, college or career break changes anyone's
+score. The first run found six real problems (including a keyword-stuffed sales resume ranking #2
+and an education filter that silently deleted work history); all are fixed, and the test suite now
+runs the evaluation on every push. Details and before/after numbers: [eval/README.md](eval/README.md).
 
 ## Known limits
 
 - Rate limits are in memory: right for one API instance. For several, point slowapi at Redis.
 - Scanned (image-only) resumes are rejected with a clear message rather than OCR'd.
-- The embedding model is English-centric.
+- The embedding model is English-centric, and non-native phrasing of the same facts lowers the
+  semantic score slightly (measured in `eval/`; skill and experience scores are unaffected).
 - Interview times are stored in UTC and shown in each viewer's local time zone.

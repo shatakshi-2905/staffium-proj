@@ -64,19 +64,26 @@ export async function startApp({ portal, nav, routes, onboarding }) {
 
   // ---- navigation
   const navLinks = {};
+  const counters = [[bellCount, async () => (await get("/api/notifications", { unread: true, limit: 1 })).unread]];
   for (const item of nav) {
     if (item.group) { navEl.append(h("span", { class: "nav-group" }, item.group)); continue; }
-    const a = h("a", { href: `#/${item.path}` }, icon(item.icon), item.label, item.key === "notifications" ? bellCount : null);
+    let counter = null;
+    if (item.key === "notifications") counter = bellCount;
+    else if (item.count) { counter = h("span", { class: "count", hidden: true }); counters.push([counter, item.count]); }
+    const a = h("a", { href: `#/${item.path}` }, icon(item.icon), item.label, counter);
     navLinks[item.key] = a;
     navEl.append(a);
   }
 
+  // Badge counts in the sidebar (unread notifications, open review requests).
   async function refreshUnread() {
-    try {
-      const n = (await get("/api/notifications", { unread: true, limit: 1 })).unread;
-      bellCount.hidden = !n;
-      bellCount.textContent = n > 99 ? "99+" : String(n);
-    } catch { /* non-critical */ }
+    for (const [el, fetchCount] of counters) {
+      try {
+        const n = await fetchCount();
+        el.hidden = !n;
+        el.textContent = n > 99 ? "99+" : String(n);
+      } catch { /* non-critical */ }
+    }
   }
 
   // ---- router

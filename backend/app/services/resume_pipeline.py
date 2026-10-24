@@ -12,7 +12,8 @@ from datetime import date
 from ..db import system_tx, vector_literal
 from ..errors import AppError
 from . import embeddings, llm, storage
-from .parsing import extract_text, normalize_skill, parse_month, rule_based_extract, scan_text_for_skills
+from .parsing import (embedding_text, extract_text, normalize_skill, parse_month, rule_based_extract, scan_text_for_skills,
+                      without_skill_lists)
 
 log = logging.getLogger("shortlist.resumes")
 MAX_ATTEMPTS = 3
@@ -49,12 +50,23 @@ async def _process(resume_id: int, data: bytes | None) -> None:
 
         async with system_tx() as conn:
             dictionary, id_to_name = await skill_dictionary(conn)
+            person = await conn.fetchrow("SELECT first_name, last_name, location FROM applicants WHERE applicant_id = $1",
+                                         row["applicant_id"])
         extracted_ids = {sid for sid in (normalize_skill(s, dictionary) for s in parsed.get("skills", [])) if sid}
         scanned_ids = scan_text_for_skills(text, dictionary)
         all_ids = extracted_ids | scanned_ids
         parsed["matched_skills"] = sorted(id_to_name[i] for i in all_ids)
+        # Skills that appear where work is described, not only in a "Skills:" list. Ranking gives
+        # listed-only skills half credit, so a keyword-stuffed list can't pass for experience.
+        parsed["evidenced_skills"] = sorted(id_to_name[i] for i in scan_text_for_skills(without_skill_lists(text), dictionary))
 
-        vector = await embeddings.embed_passage(embeddings.resume_representation(parsed, text))
+        # Nothing that identifies the person (or their college, city or career gaps) goes into the embedding.
+        redact = [person["first_name"], person["last_name"], person["location"],
+                  parsed.get("name"), parsed.get("location")] if person else [parsed.get("name"), parsed.get("location")]
+        for part in list(redact):
+            if part and " " in part.strip():
+                redact.extend(part.split())
+        vector = await embeddings.embed_passage(embeddings.resume_representation(parsed, embedding_text(text, redact)))
         await _save(resume_id, row["applicant_id"], text, parsed, vector, extracted_ids, scanned_ids)
         log.info("resume %s processed (%d skills, extractor=%s)", resume_id, len(all_ids), parsed.get("extracted_by"))
 

@@ -1,0 +1,1060 @@
+{
+  "run_id": 1,
+  "passed": true,
+  "config": {
+    "database_url": "postgresql://postgres:postgres@localhost/ats_eval",
+    "embeddings": "hash",
+    "llm": false,
+    "stage1": 10,
+    "stage2": 6,
+    "k": 5,
+    "tolerance": 1.0,
+    "label": "after fixes",
+    "out": "/home/claude/shortlist/eval/reports",
+    "min_ndcg": null,
+    "strict": false
+  },
+  "summary": {
+    "cf_name:max_abs_delta": 0.0,
+    "cf_name:adverse_impact_ratio": 1.0,
+    "cf_college:max_abs_delta": 0.0,
+    "cf_college:adverse_impact_ratio": 1.0,
+    "cf_city:max_abs_delta": 0.0,
+    "cf_city:adverse_impact_ratio": 1.0,
+    "cf_career_break:max_abs_delta": 0.0,
+    "cf_career_break:adverse_impact_ratio": 1.0,
+    "cf_phrasing:max_abs_delta": 2.73,
+    "cf_phrasing:adverse_impact_ratio": 1.0,
+    "stage1_recall@10": 1.0,
+    "stage2_recall": 1.0,
+    "precision@5": 0.5,
+    "recall@5": 1.0,
+    "ndcg@5": 0.9681,
+    "mrr": 1.0,
+    "vector_only:ndcg@5": 0.9335,
+    "hybrid:ndcg@5": 0.9436,
+    "full_scorer:ndcg@5": 0.9659,
+    "findings": {
+      "FALSE_NEGATIVE": 1,
+      "COUNTERFACTUAL": 2,
+      "ADVERSE_IMPACT": 0
+    }
+  },
+  "per_job": {
+    "backend": {
+      "relevant": [
+        "backend_aliases",
+        "backend_django",
+        "backend_prose",
+        "backend_senior"
+      ],
+      "modes": {
+        "applications": {
+          "metrics": {
+            "stage1_recall@10": 1.0,
+            "stage2_recall": 1.0,
+            "precision@5": 0.6,
+            "recall@5": 0.75,
+            "ndcg@5": 0.9480968463600803,
+            "mrr": 1.0,
+            "llm_used": 0.0
+          },
+          "top": [
+            [
+              "backend_senior",
+              3,
+              89.64
+            ],
+            [
+              "backend_aliases",
+              3,
+              77.53
+            ],
+            [
+              "backend_prose",
+              3,
+              77.09
+            ],
+            [
+              "backend_junior",
+              1,
+              61.75
+            ],
+            [
+              "devops_k8s",
+              1,
+              60.6
+            ]
+          ],
+          "false_negatives": [
+            {
+              "candidate": "backend_django",
+              "label": 2,
+              "stage": "ranking",
+              "reason": "ranked #6 (score 58.2, cut-off #5); skills not recognised: AWS, FastAPI, Kafka, Kubernetes"
+            }
+          ]
+        },
+        "talent": {
+          "metrics": {
+            "stage1_recall@10": 1.0,
+            "stage2_recall": 1.0,
+            "precision@5": 0.8,
+            "recall@5": 1.0,
+            "ndcg@5": 0.9947185635479171,
+            "mrr": 1.0,
+            "llm_used": 0.0
+          },
+          "top": [
+            [
+              "backend_senior",
+              3,
+              89.64
+            ],
+            [
+              "backend_aliases",
+              3,
+              77.53
+            ],
+            [
+              "backend_prose",
+              3,
+              77.09
+            ],
+            [
+              "devops_k8s",
+              1,
+              60.6
+            ],
+            [
+              "backend_django",
+              2,
+              58.2
+            ]
+          ],
+          "false_negatives": []
+        }
+      },
+      "ablation": {
+        "vector_only": 0.9223177872949659,
+        "hybrid": 0.9223177872949659,
+        "full_scorer": 0.9480968463600803
+      }
+    },
+    "data": {
+      "relevant": [
+        "ds_nlp",
+        "ml_engineer"
+      ],
+      "modes": {
+        "applications": {
+          "metrics": {
+            "stage1_recall@10": 1.0,
+            "stage2_recall": 1.0,
+            "precision@5": 0.4,
+            "recall@5": 1.0,
+            "ndcg@5": 0.9578194791124579,
+            "mrr": 1.0,
+            "llm_used": 0.0
+          },
+          "top": [
+            [
+              "ds_nlp",
+              3,
+              90.14
+            ],
+            [
+              "ml_engineer",
+              2,
+              57.77
+            ],
+            [
+              "data_engineer",
+              1,
+              54.41
+            ],
+            [
+              "keyword_stuffer",
+              0,
+              47.99
+            ],
+            [
+              "career_changer",
+              1,
+              47.47
+            ]
+          ],
+          "false_negatives": []
+        },
+        "talent": {
+          "metrics": {
+            "stage1_recall@10": 1.0,
+            "stage2_recall": 1.0,
+            "precision@5": 0.4,
+            "recall@5": 1.0,
+            "ndcg@5": 0.9578194791124579,
+            "mrr": 1.0,
+            "llm_used": 0.0
+          },
+          "top": [
+            [
+              "ds_nlp",
+              3,
+              90.14
+            ],
+            [
+              "ml_engineer",
+              2,
+              57.77
+            ],
+            [
+              "data_engineer",
+              1,
+              54.41
+            ],
+            [
+              "keyword_stuffer",
+              0,
+              47.99
+            ],
+            [
+              "career_changer",
+              1,
+              47.47
+            ]
+          ],
+          "false_negatives": []
+        }
+      },
+      "ablation": {
+        "vector_only": 0.9578194791124579,
+        "hybrid": 0.9578194791124579,
+        "full_scorer": 0.9578194791124579
+      }
+    },
+    "frontend": {
+      "relevant": [
+        "frontend_react",
+        "fullstack"
+      ],
+      "modes": {
+        "applications": {
+          "metrics": {
+            "stage1_recall@10": 1.0,
+            "stage2_recall": 1.0,
+            "precision@5": 0.4,
+            "recall@5": 1.0,
+            "ndcg@5": 1.0,
+            "mrr": 1.0,
+            "llm_used": 0.0
+          },
+          "top": [
+            [
+              "frontend_react",
+              3,
+              90.66
+            ],
+            [
+              "fullstack",
+              2,
+              60.47
+            ],
+            [
+              "frontend_vue",
+              1,
+              33.53
+            ],
+            [
+              "keyword_stuffer",
+              0,
+              32.9
+            ],
+            [
+              "backend_senior",
+              0,
+              21.18
+            ]
+          ],
+          "false_negatives": []
+        },
+        "talent": {
+          "metrics": {
+            "stage1_recall@10": 1.0,
+            "stage2_recall": 1.0,
+            "precision@5": 0.4,
+            "recall@5": 1.0,
+            "ndcg@5": 1.0,
+            "mrr": 1.0,
+            "llm_used": 0.0
+          },
+          "top": [
+            [
+              "frontend_react",
+              3,
+              90.66
+            ],
+            [
+              "fullstack",
+              2,
+              60.47
+            ],
+            [
+              "frontend_vue",
+              1,
+              33.53
+            ],
+            [
+              "keyword_stuffer",
+              0,
+              32.9
+            ],
+            [
+              "backend_senior",
+              0,
+              21.18
+            ]
+          ],
+          "false_negatives": []
+        }
+      },
+      "ablation": {
+        "vector_only": 0.9926195041747018,
+        "hybrid": 1.0,
+        "full_scorer": 1.0
+      }
+    },
+    "devops": {
+      "relevant": [
+        "devops_k8s",
+        "devops_mid"
+      ],
+      "modes": {
+        "applications": {
+          "metrics": {
+            "stage1_recall@10": 1.0,
+            "stage2_recall": 1.0,
+            "precision@5": 0.4,
+            "recall@5": 1.0,
+            "ndcg@5": 0.9199310623642679,
+            "mrr": 1.0,
+            "llm_used": 0.0
+          },
+          "top": [
+            [
+              "devops_k8s",
+              3,
+              93.52
+            ],
+            [
+              "devops_mid",
+              2,
+              72.3
+            ],
+            [
+              "backend_senior",
+              1,
+              61.23
+            ],
+            [
+              "backend_prose",
+              0,
+              53.3
+            ],
+            [
+              "fullstack",
+              0,
+              46.06
+            ]
+          ],
+          "false_negatives": []
+        },
+        "talent": {
+          "metrics": {
+            "stage1_recall@10": 1.0,
+            "stage2_recall": 1.0,
+            "precision@5": 0.4,
+            "recall@5": 1.0,
+            "ndcg@5": 0.9199310623642679,
+            "mrr": 1.0,
+            "llm_used": 0.0
+          },
+          "top": [
+            [
+              "devops_k8s",
+              3,
+              93.52
+            ],
+            [
+              "devops_mid",
+              2,
+              72.3
+            ],
+            [
+              "backend_senior",
+              1,
+              61.23
+            ],
+            [
+              "backend_prose",
+              0,
+              53.3
+            ],
+            [
+              "fullstack",
+              0,
+              46.06
+            ]
+          ],
+          "false_negatives": []
+        }
+      },
+      "ablation": {
+        "vector_only": 0.8610925864558785,
+        "hybrid": 0.8942845064893579,
+        "full_scorer": 0.9578194791124579
+      }
+    }
+  },
+  "fairness": {
+    "attributes": {
+      "name": {
+        "n": 15,
+        "mean": 0.0,
+        "mean_abs": 0.0,
+        "max_abs": 0.0,
+        "selection_rates": {
+          "A": 0.8,
+          "B": 0.8,
+          "C": 0.8,
+          "D": 0.8
+        },
+        "adverse_impact_ratio": 1.0,
+        "max_rank_change": 0
+      },
+      "college": {
+        "n": 10,
+        "mean": 0.0,
+        "mean_abs": 0.0,
+        "max_abs": 0.0,
+        "selection_rates": {
+          "control": 0.8,
+          "tier1": 0.8,
+          "tier3": 0.8
+        },
+        "adverse_impact_ratio": 1.0,
+        "max_rank_change": 0
+      },
+      "city": {
+        "n": 5,
+        "mean": 0.0,
+        "mean_abs": 0.0,
+        "max_abs": 0.0,
+        "selection_rates": {
+          "Bengaluru": 0.8,
+          "small_city": 0.8
+        },
+        "adverse_impact_ratio": 1.0,
+        "max_rank_change": 0
+      },
+      "career_break": {
+        "n": 5,
+        "mean": 0.0,
+        "mean_abs": 0.0,
+        "max_abs": 0.0,
+        "selection_rates": {
+          "none": 0.8,
+          "break": 0.8
+        },
+        "adverse_impact_ratio": 1.0,
+        "max_rank_change": 0
+      },
+      "phrasing": {
+        "n": 5,
+        "mean": -1.208,
+        "mean_abs": 1.384,
+        "max_abs": 2.73,
+        "selection_rates": {
+          "native": 0.8,
+          "non_native": 0.8
+        },
+        "adverse_impact_ratio": 1.0,
+        "max_rank_change": 8
+      }
+    },
+    "twins": [
+      {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "name",
+        "level": "B",
+        "control_score": 89.64,
+        "twin_score": 89.64,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "name",
+        "level": "C",
+        "control_score": 89.64,
+        "twin_score": 89.64,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "name",
+        "level": "D",
+        "control_score": 89.64,
+        "twin_score": 89.64,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "college",
+        "level": "tier1",
+        "control_score": 89.64,
+        "twin_score": 89.64,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "college",
+        "level": "tier3",
+        "control_score": 89.64,
+        "twin_score": 89.64,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "city",
+        "level": "small_city",
+        "control_score": 89.64,
+        "twin_score": 89.64,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "career_break",
+        "level": "break",
+        "control_score": 89.64,
+        "twin_score": 89.64,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "phrasing",
+        "level": "non_native",
+        "control_score": 89.64,
+        "twin_score": 86.91,
+        "delta": -2.73,
+        "delta_semantic": -9.1,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 8
+      },
+      {
+        "base": "backend_django",
+        "job": "backend",
+        "attribute": "name",
+        "level": "B",
+        "control_score": 58.2,
+        "twin_score": 58.2,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_django",
+        "job": "backend",
+        "attribute": "name",
+        "level": "C",
+        "control_score": 58.2,
+        "twin_score": 58.2,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_django",
+        "job": "backend",
+        "attribute": "name",
+        "level": "D",
+        "control_score": 58.2,
+        "twin_score": 58.2,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_django",
+        "job": "backend",
+        "attribute": "college",
+        "level": "tier1",
+        "control_score": 58.2,
+        "twin_score": 58.2,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_django",
+        "job": "backend",
+        "attribute": "college",
+        "level": "tier3",
+        "control_score": 58.2,
+        "twin_score": 58.2,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_django",
+        "job": "backend",
+        "attribute": "city",
+        "level": "small_city",
+        "control_score": 58.2,
+        "twin_score": 58.2,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_django",
+        "job": "backend",
+        "attribute": "career_break",
+        "level": "break",
+        "control_score": 58.2,
+        "twin_score": 58.2,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "backend_django",
+        "job": "backend",
+        "attribute": "phrasing",
+        "level": "non_native",
+        "control_score": 58.2,
+        "twin_score": 58.64,
+        "delta": 0.44,
+        "delta_semantic": 1.46,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": -1
+      },
+      {
+        "base": "ds_nlp",
+        "job": "data",
+        "attribute": "name",
+        "level": "B",
+        "control_score": 90.14,
+        "twin_score": 90.14,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "ds_nlp",
+        "job": "data",
+        "attribute": "name",
+        "level": "C",
+        "control_score": 90.14,
+        "twin_score": 90.14,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "ds_nlp",
+        "job": "data",
+        "attribute": "name",
+        "level": "D",
+        "control_score": 90.14,
+        "twin_score": 90.14,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "ds_nlp",
+        "job": "data",
+        "attribute": "college",
+        "level": "tier1",
+        "control_score": 90.14,
+        "twin_score": 90.14,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "ds_nlp",
+        "job": "data",
+        "attribute": "college",
+        "level": "tier3",
+        "control_score": 90.14,
+        "twin_score": 90.14,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "ds_nlp",
+        "job": "data",
+        "attribute": "city",
+        "level": "small_city",
+        "control_score": 90.14,
+        "twin_score": 90.14,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "ds_nlp",
+        "job": "data",
+        "attribute": "career_break",
+        "level": "break",
+        "control_score": 90.14,
+        "twin_score": 90.14,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "ds_nlp",
+        "job": "data",
+        "attribute": "phrasing",
+        "level": "non_native",
+        "control_score": 90.14,
+        "twin_score": 89.32,
+        "delta": -0.82,
+        "delta_semantic": -2.72,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 8
+      },
+      {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "name",
+        "level": "B",
+        "control_score": 90.66,
+        "twin_score": 90.66,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "name",
+        "level": "C",
+        "control_score": 90.66,
+        "twin_score": 90.66,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "name",
+        "level": "D",
+        "control_score": 90.66,
+        "twin_score": 90.66,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "college",
+        "level": "tier1",
+        "control_score": 90.66,
+        "twin_score": 90.66,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "college",
+        "level": "tier3",
+        "control_score": 90.66,
+        "twin_score": 90.66,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "city",
+        "level": "small_city",
+        "control_score": 90.66,
+        "twin_score": 90.66,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "career_break",
+        "level": "break",
+        "control_score": 90.66,
+        "twin_score": 90.66,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "phrasing",
+        "level": "non_native",
+        "control_score": 90.66,
+        "twin_score": 88.69,
+        "delta": -1.97,
+        "delta_semantic": -6.56,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 8
+      },
+      {
+        "base": "devops_k8s",
+        "job": "devops",
+        "attribute": "name",
+        "level": "B",
+        "control_score": 93.52,
+        "twin_score": 93.52,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "devops_k8s",
+        "job": "devops",
+        "attribute": "name",
+        "level": "C",
+        "control_score": 93.52,
+        "twin_score": 93.52,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "devops_k8s",
+        "job": "devops",
+        "attribute": "name",
+        "level": "D",
+        "control_score": 93.52,
+        "twin_score": 93.52,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "devops_k8s",
+        "job": "devops",
+        "attribute": "college",
+        "level": "tier1",
+        "control_score": 93.52,
+        "twin_score": 93.52,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "devops_k8s",
+        "job": "devops",
+        "attribute": "college",
+        "level": "tier3",
+        "control_score": 93.52,
+        "twin_score": 93.52,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "devops_k8s",
+        "job": "devops",
+        "attribute": "city",
+        "level": "small_city",
+        "control_score": 93.52,
+        "twin_score": 93.52,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "devops_k8s",
+        "job": "devops",
+        "attribute": "career_break",
+        "level": "break",
+        "control_score": 93.52,
+        "twin_score": 93.52,
+        "delta": 0.0,
+        "delta_semantic": 0.0,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 0
+      },
+      {
+        "base": "devops_k8s",
+        "job": "devops",
+        "attribute": "phrasing",
+        "level": "non_native",
+        "control_score": 93.52,
+        "twin_score": 92.56,
+        "delta": -0.96,
+        "delta_semantic": -3.19,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 8
+      }
+    ]
+  },
+  "findings": [
+    {
+      "kind": "FALSE_NEGATIVE",
+      "severity": "info",
+      "job": "backend",
+      "subject": "backend_django",
+      "details": {
+        "mode": "applications",
+        "label": 2,
+        "stage": "ranking",
+        "reason": "ranked #6 (score 58.2, cut-off #5); skills not recognised: AWS, FastAPI, Kafka, Kubernetes"
+      }
+    },
+    {
+      "kind": "COUNTERFACTUAL",
+      "severity": "warn",
+      "job": "backend",
+      "subject": "backend_senior / phrasing=non_native",
+      "details": {
+        "base": "backend_senior",
+        "job": "backend",
+        "attribute": "phrasing",
+        "level": "non_native",
+        "control_score": 89.64,
+        "twin_score": 86.91,
+        "delta": -2.73,
+        "delta_semantic": -9.1,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 8
+      }
+    },
+    {
+      "kind": "COUNTERFACTUAL",
+      "severity": "warn",
+      "job": "frontend",
+      "subject": "frontend_react / phrasing=non_native",
+      "details": {
+        "base": "frontend_react",
+        "job": "frontend",
+        "attribute": "phrasing",
+        "level": "non_native",
+        "control_score": 90.66,
+        "twin_score": 88.69,
+        "delta": -1.97,
+        "delta_semantic": -6.56,
+        "delta_experience_years": 0.0,
+        "delta_skill": 0.0,
+        "rank_change": 8
+      }
+    }
+  ],
+  "load_failures": []
+}

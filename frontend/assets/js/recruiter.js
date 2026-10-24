@@ -2,9 +2,9 @@
 import { del, get, patch, post } from "./api.js";
 import { startApp } from "./shell.js";
 import {
-  badge, breakdown, busy, chips, clear, confirmDialog, empty, errorText, extLink, field, fmtAgo, fmtDate, fmtDateTime,
+  REVIEW_FIELD, REVIEW_OUTCOME, badge, breakdown, busy, chips, clear, confirmDialog, empty, errorText, extLink, field, fmtAgo, fmtDate, fmtDateTime,
   fmtMoney, fmtYears, h, humanize, icon, input, loading, modal, pageHead, pager, panel, readForm, score, select,
-  showFormError, table, tabs, textarea, toast,
+  reviewBadge, showFormError, table, tabs, textarea, toast,
 } from "./ui.js";
 import { notificationsPage } from "./views-common.js";
 
@@ -14,6 +14,8 @@ const NAV = [
   { key: "search", path: "search", label: "Talent search", icon: "search" },
   { key: "interviews", path: "interviews", label: "Interviews", icon: "calendar" },
   { key: "offers", path: "offers", label: "Offers", icon: "file" },
+  { key: "reviews", path: "reviews", label: "Review requests", icon: "compare",
+    count: async () => (await get("/api/recruiter/reviews", { limit: 1 })).open },
   { group: "Workspace" },
   { key: "history", path: "history", label: "Search history", icon: "history" },
   { key: "notifications", path: "notifications", label: "Notifications", icon: "bell" },
@@ -323,7 +325,9 @@ async function applicationDetail(ctx) {
   }
 
   const analysis = s ? panel("Match analysis", h("div", { class: "stack" },
-    h("div", { class: "row-between" }, score(s.overall_score, { large: true }), badge(s.recommendation)),
+    h("div", { class: "row-between" }, score(s.effective_score ?? s.overall_score, { large: true }), badge(s.recommendation)),
+    s.human_score !== null && s.human_score !== undefined ? h("div", { class: "callout accent" }, icon("check"),
+      h("span", {}, `Adjusted by a reviewer from the AI score of ${Math.round(s.overall_score)}. `, h("span", { class: "muted" }, s.human_note))) : null,
     breakdown([["Skills", s.skill_score], ["Experience fit", s.experience_score], ["Semantic", s.semantic_score], ["Education", s.education_score]]),
     s.ai_explanation ? h("p", { class: "quote" }, s.ai_explanation) : null,
     h("div", { class: "grid-2" },
@@ -352,7 +356,12 @@ async function applicationDetail(ctx) {
   clear(ctx.el,
     pageHead(name, [p.headline, p.location].filter(Boolean).join(", ") || null, h("div", { class: "row" }, badge(a.status), ...actions)),
     h("div", { class: "split" },
-      h("div", { class: "stack" }, analysis, profileSections(d), panel("Interviews", interviews), panel("Offers", offers)),
+      h("div", { class: "stack" }, analysis, profileSections(d), panel("Interviews", interviews), panel("Offers", offers),
+        d.reviews.length ? panel("Review requests", h("div", {}, d.reviews.map((r) => h("div", { class: "entry row-between" },
+          h("div", {}, h("a", { class: "entry-title", href: `#/reviews/${r.request_id}` },
+            r.request_type === "HUMAN_REVIEW" ? "Human review" : `Wrong ${(REVIEW_FIELD[r.field] || "info").toLowerCase()}`),
+            h("div", { class: "sub" }, `Sent ${fmtAgo(r.created_at)}`)),
+          h("div", { class: "row" }, r.outcome ? badge("COMPLETED", REVIEW_OUTCOME[r.outcome]) : null, reviewBadge(r.status)))))) : null),
       h("div", { class: "stack" }, contactPanel(p), panel("Skills", chips(d.skills.map((x) => x.skill_name))),
         panel("Application", h("dl", { class: "dl" }, h("dt", {}, "Applied"), h("dd", {}, fmtDate(a.applied_at)),
           h("dt", {}, "Last change"), h("dd", {}, fmtAgo(a.status_changed_at)))))));
@@ -639,6 +648,123 @@ async function offersPage(ctx) {
 }
 
 // =============================================================================================
+// Review requests
+// =============================================================================================
+async function reviewsPage(ctx) {
+  const status = ctx.query.get("status") || "open";
+  const body = h("div");
+  clear(ctx.el,
+    pageHead("Review requests", "Candidates who reported wrong information or asked for a person to look at their screening. Oldest first."),
+    tabs([["open", "Open"], ["closed", "Closed"], ["all", "All"]], status, (s) => { window.location.hash = `#/reviews?status=${s}`; }), body);
+  const run = async (offset = 0) => {
+    clear(body, loading());
+    const data = await get("/api/recruiter/reviews", { status, limit: 25, offset });
+    if (!ctx.alive()) return;
+    clear(body, panel(null, h("div", {}, table([
+      { label: "Candidate", render: (r) => h("div", {}, h("div", { class: "title-cell" }, r.candidate_name), h("div", { class: "sub" }, r.job_title)) },
+      { label: "Request", render: (r) => r.request_type === "HUMAN_REVIEW" ? "Human review" : `Wrong ${(REVIEW_FIELD[r.field] || "info").toLowerCase()}` },
+      { label: "Score", render: (r) => score(r.score_before) },
+      { label: "Status", render: (r) => h("div", { class: "row" }, reviewBadge(r.status), r.outcome ? badge("COMPLETED", REVIEW_OUTCOME[r.outcome]) : null) },
+      { label: "Reviewer", render: (r) => r.reviewer_name || h("span", { class: "faint small" }, "Unassigned") },
+      { label: "Sent", render: (r) => fmtAgo(r.created_at) },
+    ], data.items, {
+      onRowClick: (r) => { window.location.hash = `#/reviews/${r.request_id}`; },
+      emptyState: empty(status === "open" ? "No open requests" : "Nothing here", "When a candidate disputes a screening, it lands here."),
+    }), pager(data, run)), { flush: true }));
+  };
+  await run(0);
+}
+
+function valueList(v) {
+  if (v === null || v === undefined) return h("span", { class: "faint" }, "Not captured");
+  if (Array.isArray(v)) {
+    if (!v.length) return h("span", { class: "faint" }, "Nothing on file");
+    if (typeof v[0] === "string") return chips(v);
+    return h("div", {}, v.map((x) => h("div", { class: "small" }, Object.values(x).filter(Boolean).join(", "))));
+  }
+  return h("span", { class: "num" }, typeof v === "number" ? fmtYears(v) : String(v));
+}
+
+async function reviewDetail(ctx) {
+  const r = await get(`/api/recruiter/reviews/${ctx.params.id}`);
+  if (!ctx.alive()) return;
+  ctx.crumbs([["Review requests", "#/reviews"], [r.candidate_name]]);
+  const open = ["OPEN", "IN_REVIEW"].includes(r.status);
+  const s = r.screening;
+
+  const request = panel("What the candidate says", h("dl", { class: "dl" },
+    h("dt", {}, "Request"), h("dd", {}, r.request_type === "HUMAN_REVIEW" ? "Human review of the screening decision" : `Information is wrong: ${(REVIEW_FIELD[r.field] || "").toLowerCase()}`),
+    r.request_type === "EXTRACTION_ERROR" ? [h("dt", {}, "On file when sent"), h("dd", {}, valueList(r.system_value))] : null,
+    r.claimed_value ? [h("dt", {}, "Should say"), h("dd", {}, r.claimed_value)] : null,
+    h("dt", {}, "Reason"), h("dd", {}, h("span", { class: "quote" }, r.reason)),
+    h("dt", {}, "Sent"), h("dd", {}, fmtDateTime(r.created_at))));
+
+  const current = panel("Profile now", h("dl", { class: "dl" },
+    h("dt", {}, "Experience"), h("dd", {}, fmtYears(r.current.experience_years)),
+    h("dt", {}, "Skills"), h("dd", {}, chips(r.current.skills)),
+    h("dt", {}, "Application"), h("dd", {}, badge(r.application_status), " ", h("a", { href: `#/applications/${r.application_id}` }, "Open candidate"))));
+
+  const scr = s ? panel("Current screening", h("div", { class: "stack" },
+    h("div", { class: "row-between" }, score(s.effective_score, { large: true }), badge(s.recommendation)),
+    s.human_score !== null ? h("p", { class: "small muted" }, `Includes a human adjustment (AI score ${Math.round(s.ai_score)}).`) : null,
+    breakdown([["Skills", s.skill_score], ["Experience fit", s.experience_score], ["Semantic", s.semantic_score]]),
+    s.missing_skills?.length ? h("div", { class: "stack-sm" }, h("span", { class: "label" }, "Missing skills"), chips(s.missing_skills, "missing")) : null,
+    s.ai_explanation ? h("p", { class: "quote" }, s.ai_explanation) : null,
+    h("p", { class: "faint xs" }, `Screened ${fmtAgo(s.screened_at)}${s.llm_used ? " with AI review" : ", database scoring only"}.`)))
+    : panel("Current screening", h("p", { class: "muted small" }, "Not screened yet."));
+
+  let decision;
+  if (open) {
+    const outcomes = [["UPHELD", "Uphold: the decision stands"], ["RESCREENED", "Re-screen with the current profile"]];
+    if (s) outcomes.push(["OVERRIDDEN", "Override: set the score myself"]);
+    if (r.application_status === "REJECTED") outcomes.push(["REINSTATED", "Reinstate: move back to screening"]);
+    const outcomeSel = select("outcome", outcomes, r.request_type === "EXTRACTION_ERROR" ? "RESCREENED" : "UPHELD");
+    const scoreField = h("div", { hidden: true }, field("Score (0-100)", input("override_score", { type: "number", min: 0, max: 100, step: "0.5" })));
+    outcomeSel.addEventListener("change", () => { scoreField.hidden = outcomeSel.value !== "OVERRIDDEN"; });
+    const form = h("form", { class: "form", novalidate: true },
+      field("Outcome", outcomeSel), scoreField,
+      field("Note to the candidate", textarea("note", { maxlength: 2000, required: true, placeholder: "What you checked and why you decided this. The candidate sees this note." }),
+        { hint: "Required. Saved in the audit trail with the score before and after." }),
+      h("div", { class: "form-actions" },
+        r.status === "OPEN" ? h("button", { class: "btn", type: "button", onclick: async (e) => {
+          await busy(e.currentTarget, async () => { try { await post(`/api/recruiter/reviews/${r.request_id}/start`); toast("Marked as in review"); ctx.rerender(); } catch (err) { toast(errorText(err), "error"); } });
+        } }, "Start review") : null,
+        h("button", { class: "btn btn-primary", type: "submit" }, "Record outcome")));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      showFormError(form, null);
+      const v = readForm(form);
+      if (v.outcome !== "OVERRIDDEN") delete v.override_score;
+      await busy(e.submitter, async () => {
+        try {
+          const res = await post(`/api/recruiter/reviews/${r.request_id}/resolve`, v);
+          const r0 = (v) => (v === null || v === undefined ? "-" : Math.round(v));
+          toast(`${REVIEW_OUTCOME[res.outcome]}. Score ${r0(res.score_before)} to ${r0(res.score_after)}.`);
+          ctx.rerender(); ctx.refreshUnread();
+        } catch (err) { showFormError(form, err); }
+      });
+    });
+    decision = panel(r.status === "IN_REVIEW" ? `In review by ${r.reviewer_name}` : "Decide", form);
+  } else {
+    decision = panel("Outcome", h("dl", { class: "dl" },
+      h("dt", {}, "Status"), h("dd", {}, reviewBadge(r.status)),
+      r.outcome ? [h("dt", {}, "Outcome"), h("dd", {}, REVIEW_OUTCOME[r.outcome])] : null,
+      r.reviewer_name ? [h("dt", {}, "Reviewer"), h("dd", {}, r.reviewer_name)] : null,
+      r.score_before !== null || r.score_after !== null ? [h("dt", {}, "Score"), h("dd", { class: "num" }, `${r.score_before === null ? "-" : Math.round(r.score_before)} before, ${r.score_after === null ? "-" : Math.round(r.score_after)} after`)] : null,
+      r.resolution_note ? [h("dt", {}, "Note"), h("dd", {}, h("span", { class: "quote" }, r.resolution_note))] : null,
+      h("dt", {}, "Closed"), h("dd", {}, fmtDateTime(r.resolved_at))));
+  }
+
+  clear(ctx.el,
+    pageHead(`${r.candidate_name}: ${r.request_type === "HUMAN_REVIEW" ? "human review" : "information reported wrong"}`, r.job_title,
+      h("div", { class: "row" }, reviewBadge(r.status))),
+    h("div", { class: "split" }, h("div", { class: "stack" }, request, scr, current), h("div", { class: "stack" }, decision,
+      r.history.length ? panel("Earlier requests", h("div", {}, r.history.map((x) => h("div", { class: "entry row-between" },
+        h("a", { href: `#/reviews/${x.request_id}` }, x.request_type === "HUMAN_REVIEW" ? "Human review" : "Wrong information"),
+        h("div", { class: "row" }, x.outcome ? h("span", { class: "small muted" }, REVIEW_OUTCOME[x.outcome]) : null, reviewBadge(x.status)))))) : null)));
+}
+
+// =============================================================================================
 // Company and team
 // =============================================================================================
 async function teamPage(ctx) {
@@ -698,6 +824,8 @@ startApp({
     { path: "history", nav: "history", title: "Search history", render: historyPage },
     { path: "interviews", nav: "interviews", title: "Interviews", render: interviewsPage },
     { path: "offers", nav: "offers", title: "Offers", render: offersPage },
+    { path: "reviews", nav: "reviews", title: "Review requests", render: reviewsPage },
+    { path: "reviews/:id", nav: "reviews", title: "Review", render: reviewDetail },
     { path: "notifications", nav: "notifications", title: "Notifications", render: notificationsPage },
     { path: "team", nav: "team", title: "Company and team", render: teamPage },
   ],

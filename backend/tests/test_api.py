@@ -438,3 +438,64 @@ async def test_llm_extraction_and_rerank_are_validated(client, monkeypatch):
     assert detail["recommendation"] in ("STRONG_MATCH", "MATCH", "WEAK_MATCH", "REJECT")
     assert len(detail["strengths"]) <= 5 and detail["ai_explanation"] == "Solid backend profile."
     assert detail["llm_used"] is True
+
+
+# =============================================================================================
+# Screening review workflow
+# =============================================================================================
+async def test_review_workflow_end_to_end(client):
+    a, _ = await onboard_applicant(client, RESUME_B, first="Rohan")
+    r = await onboard_recruiter(client)
+    other = await onboard_recruiter(client, "Globex")
+    job = await create_job(client, r)
+    app_id = (await client.post(f"/api/jobs/{job}/apply", headers=H(a))).json()["application_id"]
+
+    # Too early: not screened or decided yet.
+    early = await client.post(f"/api/applications/{app_id}/reviews", headers=H(a),
+                              json={"request_type": "HUMAN_REVIEW", "reason": "Please have a person look at this."})
+    assert early.status_code == 409
+    assert (await client.post(f"/api/applications/{app_id}/reviews", headers=H(a),
+                              json={"request_type": "EXTRACTION_ERROR", "reason": "Short"})).status_code == 422
+
+    await client.post(f"/api/recruiter/jobs/{job}/screen", headers=H(r), json={"use_ai": False})
+    await client.patch(f"/api/recruiter/applications/{app_id}/status", headers=H(r), json={"status": "REJECTED"})
+    before = (await client.get(f"/api/recruiter/jobs/{job}/applications", headers=H(r))).json()["items"][0]["overall_score"]
+
+    # The applicant reports missing skills, then fixes their profile.
+    rq = await client.post(f"/api/applications/{app_id}/reviews", headers=H(a), json={
+        "request_type": "EXTRACTION_ERROR", "field": "SKILLS", "claimed_value": "Python, AWS, Docker",
+        "reason": "I used Python, AWS and Docker at PixelWorks for our build tooling."})
+    assert rq.status_code == 201, rq.text
+    rq_id = rq.json()["request_id"]
+    ids = await skill_ids(["Python", "AWS", "Docker"])
+    for sid in ids.values():
+        assert (await client.put("/api/applicant/skills", headers=H(a), json={"skill_id": sid})).status_code == 200
+
+    # Only the hiring company sees the request.
+    assert (await client.get(f"/api/recruiter/reviews/{rq_id}", headers=H(other))).status_code == 404
+    queue = (await client.get("/api/recruiter/reviews", headers=H(r))).json()
+    assert queue["open"] == 1 and queue["items"][0]["request_id"] == rq_id
+    detail = (await client.get(f"/api/recruiter/reviews/{rq_id}", headers=H(r))).json()
+    assert "Python" not in detail["system_value"] and "Python" in detail["current"]["skills"]
+
+    assert (await client.post(f"/api/recruiter/reviews/{rq_id}/start", headers=H(r))).status_code == 200
+    res = await client.post(f"/api/recruiter/reviews/{rq_id}/resolve", headers=H(r), json={
+        "outcome": "RESCREENED", "note": "Skills confirmed on the portfolio; re-scored with the updated profile."})
+    assert res.status_code == 200, res.text
+    out = res.json()
+    assert float(out["score_before"]) == float(before) and float(out["score_after"]) > float(before)
+
+    # A second request: human review of the rejection, reinstated.
+    hr = (await client.post(f"/api/applications/{app_id}/reviews", headers=H(a), json={
+        "request_type": "HUMAN_REVIEW", "reason": "With the corrected skills I meet every requirement."})).json()["request_id"]
+    bad = await client.post(f"/api/recruiter/reviews/{hr}/resolve", headers=H(r), json={"outcome": "OVERRIDDEN", "note": "Missing the score here."})
+    assert bad.status_code == 422
+    ok = await client.post(f"/api/recruiter/reviews/{hr}/resolve", headers=H(r), json={
+        "outcome": "REINSTATED", "note": "Moving back to screening after the correction."})
+    assert ok.status_code == 200, ok.text
+    mine = (await client.get("/api/reviews", headers=H(a))).json()["items"]
+    assert [m["outcome"] for m in mine] == ["REINSTATED", "RESCREENED"]
+    apps = (await client.get("/api/applications", headers=H(a))).json()["items"]
+    assert apps[0]["status"] == "SCREENING" and apps[0]["review_status"] == "RESOLVED"
+    assert (await client.post(f"/api/recruiter/reviews/{hr}/resolve", headers=H(r), json={
+        "outcome": "UPHELD", "note": "Trying to resolve a closed request."})).status_code == 409

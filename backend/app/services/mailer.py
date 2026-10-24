@@ -99,6 +99,17 @@ def build_message(row: dict) -> MIMEMultipart:
         subject = f"Offer from {company}: {job}"
         body = (f"{company} has made you an offer for {job}. Sign in to review the details and respond before "
                 f"{_parse_ts(p['expires_at']).strftime('%d %B %Y')}.")
+    elif event == "REVIEW_RESOLVED":
+        outcome_copy = {
+            "UPHELD": "The reviewer looked at your request and the decision stands.",
+            "RESCREENED": "Your application was screened again using your updated profile.",
+            "OVERRIDDEN": "A reviewer adjusted the assessment of your application.",
+            "REINSTATED": "Your application is back in the hiring process.",
+        }
+        subject = f"Your review request: {job} at {company}"
+        body = outcome_copy.get(p.get("outcome"), "Your review request was resolved.")
+        if p.get("note"):
+            body += f" Reviewer's note: {p['note']}"
     elif event == "FEEDBACK_READY":
         subject, body = f"Feedback on your {job} application", "Personalised suggestions for this role are ready in your dashboard."
     else:

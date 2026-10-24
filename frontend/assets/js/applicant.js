@@ -3,9 +3,9 @@ import { del, get, patch, post, put, upload } from "./api.js";
 import { startApp } from "./shell.js";
 import { notificationsPage } from "./views-common.js";
 import {
-  badge, busy, chips, clear, confirmDialog, empty, errorText, extLink, field, fmtAgo, fmtDate, fmtDateTime, fmtMoney,
+  REVIEW_FIELD, REVIEW_OUTCOME, badge, busy, chips, clear, confirmDialog, empty, errorText, extLink, field, fmtAgo, fmtDate, fmtDateTime, fmtMoney,
   fmtSalaryRange, fmtYears, h, humanize, icon, input, loading, modal, pageHead, pager, panel, readForm, score, select,
-  showFormError, table, tabs, textarea, toast,
+  reviewBadge, showFormError, table, tabs, textarea, toast,
 } from "./ui.js";
 
 const NAV = [
@@ -13,6 +13,7 @@ const NAV = [
   { key: "jobs", path: "jobs", label: "Find jobs", icon: "search" },
   { key: "applications", path: "applications", label: "Applications", icon: "layers" },
   { key: "interviews", path: "interviews", label: "Interviews", icon: "calendar" },
+  { key: "reviews", path: "reviews", label: "Review requests", icon: "compare" },
   { group: "You" },
   { key: "profile", path: "profile", label: "Profile", icon: "user" },
   { key: "resume", path: "resume", label: "Resume", icon: "file" },
@@ -455,7 +456,11 @@ async function applicationsPage(ctx) {
         { label: "Role", render: (a) => h("div", {}, h("div", { class: "title-cell" }, a.job_title), h("div", { class: "sub" }, a.company_name)) },
         { label: "Status", render: (a) => badge(a.status) },
         { label: "Updated", render: (a) => fmtAgo(a.status_changed_at) },
-        { label: "", class: "right", render: (a) => a.has_feedback ? h("a", { class: "btn btn-sm", href: `#/applications/${a.application_id}/feedback` }, "See why") : null },
+        { label: "Review", render: (a) => (a.review_status ? reviewBadge(a.review_status) : h("span", { class: "faint small" }, "-")) },
+        { label: "", class: "right", render: (a) => h("div", { class: "row", style: { justifyContent: "flex-end", flexWrap: "nowrap" } },
+          a.has_feedback ? h("a", { class: "btn btn-sm", href: `#/applications/${a.application_id}/feedback` }, "See why") : null,
+          a.status === "REJECTED" && !["OPEN", "IN_REVIEW"].includes(a.review_status)
+            ? h("button", { class: "btn btn-sm", onclick: () => reviewForm(a, "HUMAN_REVIEW", ctx) }, "Request review") : null) },
       ], closed), { flush: true }) : null)
     : panel(null, empty("No applications yet", "Find a role that fits and apply with your resume.", h("a", { class: "btn btn-primary", href: "#/jobs" }, "Find jobs"))));
 }
@@ -471,10 +476,59 @@ function ticket(a, ctx) {
       h("div", { class: "row" },
         h("button", { class: "btn btn-primary btn-sm", onclick: () => respond(a, "ACCEPTED", ctx) }, "Accept"),
         h("button", { class: "btn btn-sm", onclick: () => respond(a, "REJECTED", ctx) }, "Decline"))) : null,
-    a.status !== "HIRED" ? h("button", { class: "btn btn-ghost btn-sm", style: { alignSelf: "flex-start", marginTop: "2px" }, onclick: async () => {
+    a.review_status ? h("div", { class: "row", style: { gap: "6px" } }, h("span", { class: "faint xs" }, "Review"), reviewBadge(a.review_status)) : null,
+    h("button", { class: "btn btn-ghost btn-sm", style: { alignSelf: "flex-start" }, onclick: () => reviewForm(a, "EXTRACTION_ERROR", ctx) }, "Report wrong info"),
+    a.status !== "HIRED" ? h("button", { class: "btn btn-ghost btn-sm", style: { alignSelf: "flex-start", marginTop: "-4px" }, onclick: async () => {
       if (!(await confirmDialog("Withdraw this application?", `${a.company_name} will be told you've withdrawn from ${a.job_title}. You can't reapply to the same job.`, "Withdraw", true))) return;
       try { await post(`/api/applications/${a.application_id}/withdraw`); toast("Application withdrawn"); ctx.rerender(); } catch (err) { toast(errorText(err), "error"); }
     } }, "Withdraw") : null);
+}
+
+function reviewForm(a, type, ctx) {
+  const extraction = type === "EXTRACTION_ERROR";
+  const claimed = h("div", { hidden: !extraction }, field("What it should say", input("claimed_value", { maxlength: 1000, placeholder: "e.g. 4 years, or Python, AWS, Docker" })));
+  const typeSel = select("request_type", [["EXTRACTION_ERROR", "Information from my resume is wrong"], ["HUMAN_REVIEW", "I'd like a person to review the decision"]], type);
+  const fieldSel = h("div", { hidden: !extraction }, field("What's wrong", select("field", Object.entries(REVIEW_FIELD), "SKILLS")));
+  typeSel.addEventListener("change", () => { const ex = typeSel.value === "EXTRACTION_ERROR"; claimed.hidden = !ex; fieldSel.hidden = !ex; });
+  const form = h("form", { class: "form", novalidate: true },
+    field("Request", typeSel), fieldSel, claimed,
+    field("Explain", textarea("reason", { maxlength: 2000, required: true, placeholder: "What's missing or wrong, and where it appears in your resume or profile." }),
+      { hint: "At least 10 characters. The recruiter sees exactly what you write." }),
+    h("div", { class: "callout" }, icon("info"), h("span", {}, "If your profile is missing something, ",
+      h("a", { href: "#/profile" }, "update it first"), ". The reviewer can then re-screen your application with the corrected details.")));
+  const submit = h("button", { class: "btn btn-primary", type: "button" }, "Send request");
+  const { close } = modal({ title: `Review: ${a.job_title}`, body: form, footer: [h("button", { class: "btn", type: "button", onclick: () => close() }, "Cancel"), submit] });
+  submit.addEventListener("click", () => busy(submit, async () => {
+    showFormError(form, null);
+    const v = readForm(form);
+    if (v.request_type === "HUMAN_REVIEW") { delete v.field; delete v.claimed_value; }
+    try { await post(`/api/applications/${a.application_id}/reviews`, v); close(); toast("Request sent to the hiring team"); ctx.rerender(); }
+    catch (err) { showFormError(form, err); }
+  }));
+}
+
+async function reviewsPage(ctx) {
+  const data = await get("/api/reviews");
+  if (!ctx.alive()) return;
+  clear(ctx.el,
+    pageHead("Review requests", "Reports of wrong information and requests for a human review. Every outcome is recorded."),
+    data.items.length ? h("div", { class: "stack" }, data.items.map((r) => panel(null, h("div", { class: "stack-sm" },
+      h("div", { class: "row-between" },
+        h("div", {}, h("div", { class: "title-cell" }, r.job_title), h("div", { class: "sub" }, `${r.company_name}, sent ${fmtAgo(r.created_at)}`)),
+        h("div", { class: "row" }, r.outcome ? badge("COMPLETED", REVIEW_OUTCOME[r.outcome]) : null, reviewBadge(r.status))),
+      h("dl", { class: "dl" },
+        h("dt", {}, "Request"), h("dd", {}, r.request_type === "HUMAN_REVIEW" ? "Human review of the decision" : `Wrong ${(REVIEW_FIELD[r.field] || "information").toLowerCase()}`),
+        r.claimed_value ? [h("dt", {}, "Should say"), h("dd", {}, r.claimed_value)] : null,
+        h("dt", {}, "Your reason"), h("dd", {}, r.reason),
+        r.resolution_note ? [h("dt", {}, "Reviewer's note"), h("dd", {}, h("span", { class: "quote" }, r.resolution_note))] : null,
+        r.score_after !== null && r.score_before !== null && r.status === "RESOLVED"
+          ? [h("dt", {}, "Match score"), h("dd", { class: "num" }, `${Math.round(r.score_before)} before, ${Math.round(r.score_after)} after`)] : null),
+      ["OPEN", "IN_REVIEW"].includes(r.status) ? h("button", { class: "btn btn-sm", style: { alignSelf: "flex-start" }, onclick: async () => {
+        if (!(await confirmDialog("Withdraw this request?", "The hiring team won't review it. You can send a new one later.", "Withdraw request", true))) return;
+        try { await post(`/api/reviews/${r.request_id}/withdraw`); toast("Request withdrawn"); ctx.rerender(); } catch (err) { toast(errorText(err), "error"); }
+      } }, "Withdraw request") : null))))
+    : panel(null, empty("No review requests", "If something about a screening looks wrong, report it from your Applications page.",
+        h("a", { class: "btn", href: "#/applications" }, "Go to applications"))));
 }
 
 async function respond(a, decision, ctx) {
@@ -497,7 +551,8 @@ async function feedbackPage(ctx) {
     : h("p", { class: "muted small" }, "Suggestions are being prepared. Check back in a minute.");
 
   clear(ctx.el,
-    pageHead(`Why ${fb.company_name} didn't move forward`, `Your application for ${fb.job_title}. This stays here so you can come back to it.`),
+    pageHead(`Why ${fb.company_name} didn't move forward`, `Your application for ${fb.job_title}. This stays here so you can come back to it.`,
+      h("button", { class: "btn", onclick: () => reviewForm({ application_id: Number(ctx.params.id), job_title: fb.job_title }, "HUMAN_REVIEW", ctx) }, "Ask for a human review")),
     h("div", { class: "split" },
       h("div", { class: "stack" },
         panel("What the role needed that your profile didn't show", fb.missing_skills.length ? chips(fb.missing_skills, "missing")
@@ -538,6 +593,7 @@ startApp({
     { path: "applications", nav: "applications", title: "Applications", render: applicationsPage },
     { path: "applications/:id/feedback", nav: "applications", title: "Feedback", render: feedbackPage },
     { path: "interviews", nav: "interviews", title: "Interviews", render: interviewsPage },
+    { path: "reviews", nav: "reviews", title: "Review requests", render: reviewsPage },
     { path: "notifications", nav: "notifications", title: "Notifications", render: notificationsPage },
   ],
 });

@@ -161,8 +161,8 @@ async def analytics(days: int = Query(30, ge=7, le=180), user: CurrentUser = Dep
                GROUP BY d ORDER BY d""", user.company_id, days)
 
         by_job = await conn.fetch(
-            """SELECT j.job_id, j.title, count(sr.screening_id) AS screened, round(avg(sr.overall_score), 1) AS avg_score,
-                      max(sr.overall_score) AS best_score
+            """SELECT j.job_id, j.title, count(sr.screening_id) AS screened, round(avg(sr.effective_score), 1) AS avg_score,
+                      max(sr.effective_score) AS best_score
                FROM job_postings j
                JOIN applications a ON a.job_id = j.job_id
                JOIN screening_results sr ON sr.application_id = a.application_id

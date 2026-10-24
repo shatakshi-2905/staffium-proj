@@ -299,3 +299,121 @@ async def test_experience_merges_overlaps_and_soft_delete_is_final(pool):
         with pytest.raises(asyncpg.PostgresError) as e:
             await c.execute("UPDATE job_postings SET title = 'x' WHERE job_id = $1", jid)
         assert e.value.sqlstate == "SL409"
+
+
+# =============================================================================================
+# Screening review requests (migration 007)
+# =============================================================================================
+async def _screened_application(pool, score=55.0):
+    r_uid, cid, rid = await make_company(pool)
+    jid = await make_job(pool, r_uid, cid, rid)
+    a_uid, aid, resume = await make_applicant(pool)
+    app_id = await apply(pool, a_uid, aid, resume, jid)
+    async with pool.acquire() as c:
+        await c.execute("""INSERT INTO screening_results (application_id, overall_score, recommendation)
+                           VALUES ($1, $2, 'WEAK_MATCH')""", app_id, score)
+    return r_uid, a_uid, aid, app_id
+
+
+async def _request(pool, a_uid, aid, app_id, rtype="HUMAN_REVIEW", field=None, claimed=None):
+    async with as_user(pool, a_uid) as c:
+        return await c.fetchval(
+            """INSERT INTO screening_review_requests (application_id, applicant_id, request_type, field, claimed_value, reason)
+               VALUES ($1, $2, $3, $4, $5, 'The screening missed my Kafka work at Finlytics.') RETURNING request_id""",
+            app_id, aid, rtype, field, claimed)
+
+
+async def test_review_request_rules_and_snapshot(pool):
+    r_uid, cid, rid = await make_company(pool)
+    jid = await make_job(pool, r_uid, cid, rid)
+    a_uid, aid, resume = await make_applicant(pool)
+    app_id = await apply(pool, a_uid, aid, resume, jid)
+
+    with pytest.raises(asyncpg.PostgresError) as e:           # not screened, not decided yet
+        await _request(pool, a_uid, aid, app_id)
+    assert e.value.sqlstate == "SL409"
+    with pytest.raises(asyncpg.CheckViolationError):           # extraction report needs a field
+        await _request(pool, a_uid, aid, app_id, rtype="EXTRACTION_ERROR")
+
+    rq = await _request(pool, a_uid, aid, app_id, rtype="EXTRACTION_ERROR", field="SKILLS", claimed="Python, Kafka")
+    with pytest.raises(asyncpg.UniqueViolationError):          # one open request per type
+        await _request(pool, a_uid, aid, app_id, rtype="EXTRACTION_ERROR", field="EDUCATION")
+    async with pool.acquire() as c:
+        row = await c.fetchrow("SELECT status, system_value FROM screening_review_requests WHERE request_id = $1", rq)
+        assert row["status"] == "OPEN" and json.loads(row["system_value"]) == ["Python"]
+        assert await c.fetchval("SELECT count(*) FROM notifications WHERE user_id = $1 AND type = 'REVIEW_REQUESTED'", r_uid) == 1
+        assert await c.fetchval("SELECT count(*) FROM audit_logs WHERE entity_type = 'review_request' AND entity_id = $1", rq) == 1
+
+    # Column-level INSERT grant: the applicant can't pre-fill the outcome or status.
+    async with pool.acquire() as c:
+        async with c.transaction():
+            await c.execute("SELECT set_config('request.jwt.claims', $1, true), set_config('role', 'app_user', true)",
+                            json.dumps({"sub": str(a_uid)}))
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                await c.execute("""INSERT INTO screening_review_requests (application_id, applicant_id, request_type, reason, status)
+                                   VALUES ($1, $2, 'HUMAN_REVIEW', 'please look again at this', 'RESOLVED')""", app_id, aid)
+
+
+async def test_review_permissions_and_state_machine(pool):
+    r_uid, a_uid, aid, app_id = await _screened_application(pool)
+    other_company, _, _ = await make_company(pool)
+    other_applicant, _, _ = await make_applicant(pool)
+    rq = await _request(pool, a_uid, aid, app_id)
+
+    for outsider in (other_company, other_applicant):
+        async with as_user(pool, outsider) as c:
+            assert await c.fetchval("SELECT count(*) FROM screening_review_requests WHERE request_id = $1", rq) == 0
+            assert await c.execute("UPDATE screening_review_requests SET status = 'IN_REVIEW' WHERE request_id = $1", rq) == "UPDATE 0"
+
+    async with as_user(pool, a_uid) as c:                     # applicants can't resolve their own request
+        with pytest.raises(asyncpg.PostgresError) as e:
+            await c.execute("""UPDATE screening_review_requests SET status = 'RESOLVED', outcome = 'UPHELD',
+                               resolution_note = 'I approve myself' WHERE request_id = $1""", rq)
+        assert e.value.sqlstate == "SL409"
+    async with as_user(pool, a_uid) as c:                     # or edit what they submitted
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await c.execute("UPDATE screening_review_requests SET reason = 'something else entirely' WHERE request_id = $1", rq)
+    async with as_user(pool, r_uid) as c:
+        await c.execute("UPDATE screening_review_requests SET status = 'IN_REVIEW' WHERE request_id = $1", rq)
+    async with as_user(pool, r_uid) as c:                     # resolving needs a written note
+        with pytest.raises(asyncpg.CheckViolationError):
+            await c.execute("UPDATE screening_review_requests SET status = 'RESOLVED', outcome = 'UPHELD' WHERE request_id = $1", rq)
+    async with as_user(pool, r_uid) as c:                     # an override needs a score
+        with pytest.raises(asyncpg.CheckViolationError):
+            await c.execute("""UPDATE screening_review_requests SET status = 'RESOLVED', outcome = 'OVERRIDDEN',
+                               resolution_note = 'Kafka experience confirmed on the call.' WHERE request_id = $1""", rq)
+    async with as_user(pool, r_uid) as c:
+        await c.execute("""UPDATE screening_review_requests SET status = 'RESOLVED', outcome = 'OVERRIDDEN', override_score = 78,
+                           resolution_note = 'Kafka experience confirmed on the call.' WHERE request_id = $1""", rq)
+    async with pool.acquire() as c:
+        sr = await c.fetchrow("SELECT overall_score, human_score, effective_score, human_reviewed_by FROM screening_results WHERE application_id = $1", app_id)
+        assert (float(sr["overall_score"]), float(sr["human_score"]), float(sr["effective_score"])) == (55.0, 78.0, 78.0)
+        assert sr["human_reviewed_by"] is not None
+        req = await c.fetchrow("SELECT score_before, score_after, reviewer_id, resolved_at FROM screening_review_requests WHERE request_id = $1", rq)
+        assert (float(req["score_before"]), float(req["score_after"])) == (55.0, 78.0) and req["resolved_at"]
+        actions = [r[0] for r in await c.fetch("SELECT action FROM audit_logs WHERE entity_type = 'review_request' AND entity_id = $1 ORDER BY log_id", rq)]
+        assert actions == ["REVIEW_REQUESTED", "REVIEW_STARTED", "REVIEW_RESOLVED"]
+        assert await c.fetchval("SELECT count(*) FROM notifications_outbox WHERE application_id = $1 AND event_type = 'REVIEW_RESOLVED'", app_id) == 1
+    async with as_user(pool, r_uid) as c:                     # closed for good
+        with pytest.raises(asyncpg.PostgresError):
+            await c.execute("UPDATE screening_review_requests SET resolution_note = 'changed my mind entirely' WHERE request_id = $1", rq)
+
+
+async def test_review_reinstates_rejected_application(pool):
+    r_uid, a_uid, aid, app_id = await _screened_application(pool)
+    await set_status(pool, r_uid, app_id, "REJECTED")
+    rq = await _request(pool, a_uid, aid, app_id)
+    async with as_user(pool, r_uid) as c:
+        await c.execute("""UPDATE screening_review_requests SET status = 'RESOLVED', outcome = 'REINSTATED',
+                           resolution_note = 'Rejected by mistake during bulk triage.' WHERE request_id = $1""", rq)
+    async with pool.acquire() as c:
+        assert await c.fetchval("SELECT status FROM applications WHERE application_id = $1", app_id) == "SCREENING"
+        assert await c.fetchval("SELECT count(*) FROM candidate_feedback WHERE application_id = $1", app_id) == 0
+    rq2 = await _request(pool, a_uid, aid, app_id, rtype="EXTRACTION_ERROR", field="EXPERIENCE_YEARS", claimed="4")
+    async with as_user(pool, r_uid) as c:                     # reinstating needs a rejected application
+        with pytest.raises(asyncpg.PostgresError) as e:
+            await c.execute("""UPDATE screening_review_requests SET status = 'RESOLVED', outcome = 'REINSTATED',
+                               resolution_note = 'Trying to reinstate twice.' WHERE request_id = $1""", rq2)
+        assert e.value.sqlstate == "SL409"
+    async with as_user(pool, a_uid) as c:
+        await c.execute("UPDATE screening_review_requests SET status = 'WITHDRAWN' WHERE request_id = $1", rq2)

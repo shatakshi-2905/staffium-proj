@@ -141,16 +141,19 @@ async def job_applications(job_id: int, status: str | None = Query(None, pattern
             """SELECT a.application_id, a.applicant_id, a.status, a.applied_at, a.status_changed_at,
                       ap.first_name || ' ' || ap.last_name AS candidate_name, ap.headline, ap.location,
                       calculate_candidate_experience(a.applicant_id) AS experience_years,
-                      sr.overall_score, sr.skill_score, sr.experience_score, sr.semantic_score, sr.education_score,
+                      sr.effective_score AS overall_score, sr.overall_score AS ai_score, sr.human_score,
+                      sr.skill_score, sr.experience_score, sr.semantic_score, sr.education_score,
                       sr.recommendation, sr.missing_skills, sr.llm_used, sr.screened_at,
-                      CASE WHEN sr.overall_score IS NOT NULL
-                           THEN RANK() OVER (ORDER BY sr.overall_score DESC NULLS LAST) END AS rank_in_job,
+                      CASE WHEN sr.effective_score IS NOT NULL
+                           THEN RANK() OVER (ORDER BY sr.effective_score DESC NULLS LAST) END AS rank_in_job,
+                      EXISTS (SELECT 1 FROM screening_review_requests rr WHERE rr.application_id = a.application_id
+                              AND rr.status IN ('OPEN', 'IN_REVIEW')) AS review_pending,
                       count(*) OVER () AS total_count
                FROM applications a
                JOIN applicants ap ON ap.applicant_id = a.applicant_id
                LEFT JOIN screening_results sr ON sr.application_id = a.application_id
                WHERE a.job_id = $1 AND ($2::text IS NULL OR a.status = $2)
-               ORDER BY sr.overall_score DESC NULLS LAST, a.applied_at
+               ORDER BY sr.effective_score DESC NULLS LAST, a.applied_at
                LIMIT $3 OFFSET $4""",
             job_id, status, page.limit, page.offset)
     return paged(rows, page)
@@ -169,6 +172,26 @@ async def _spec_for_job(conn, job_id: int, company_id: int) -> SearchSpec:
                       skills=[JobSkill(r["skill_id"], r["skill_name"], r["is_required"], float(r["importance_weight"])) for r in skills])
 
 
+async def save_screening(conn, ranked: list[dict], llm_used: bool) -> None:
+    """Upsert scores. A human override (human_score) is deliberately left untouched by re-screening."""
+    model = S.bedrock_model_id if llm_used else None
+    for c in ranked:
+        await conn.execute(
+            """INSERT INTO screening_results (application_id, semantic_score, skill_score, experience_score, education_score,
+                   overall_score, recommendation, strengths, missing_skills, ai_explanation, llm_used, model_name, model_version)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+               ON CONFLICT (application_id) DO UPDATE SET semantic_score = EXCLUDED.semantic_score,
+                   skill_score = EXCLUDED.skill_score, experience_score = EXCLUDED.experience_score,
+                   education_score = EXCLUDED.education_score, overall_score = EXCLUDED.overall_score,
+                   recommendation = EXCLUDED.recommendation, strengths = EXCLUDED.strengths,
+                   missing_skills = EXCLUDED.missing_skills, ai_explanation = EXCLUDED.ai_explanation,
+                   llm_used = EXCLUDED.llm_used, model_name = EXCLUDED.model_name,
+                   model_version = EXCLUDED.model_version, screened_at = now()""",
+            c["application_id"], c["semantic_score"], c["skill_score"], c["experience_score"], c["education_score"],
+            c["overall_score"], c["recommendation"], c["strengths"], c["missing_skills"], c["ai_explanation"],
+            c["llm_used"], model or embeddings.model_name(), "llm" if c["llm_used"] else "deterministic")
+
+
 @router.post("/jobs/{job_id}/screen")
 @limiter.limit(S.rate_limit_search)
 async def screen_applicants(request: Request, job_id: int, body: ScreenIn | None = None,
@@ -179,22 +202,7 @@ async def screen_applicants(request: Request, job_id: int, body: ScreenIn | None
     async with user_tx(user.user_id) as conn:
         spec = await _spec_for_job(conn, job_id, user.company_id)
         ranked, llm_used = await rank(conn, spec, pool="applications", use_llm=use_ai)
-        model = S.bedrock_model_id if llm_used else None
-        for c in ranked:
-            await conn.execute(
-                """INSERT INTO screening_results (application_id, semantic_score, skill_score, experience_score, education_score,
-                       overall_score, recommendation, strengths, missing_skills, ai_explanation, llm_used, model_name, model_version)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-                   ON CONFLICT (application_id) DO UPDATE SET semantic_score = EXCLUDED.semantic_score,
-                       skill_score = EXCLUDED.skill_score, experience_score = EXCLUDED.experience_score,
-                       education_score = EXCLUDED.education_score, overall_score = EXCLUDED.overall_score,
-                       recommendation = EXCLUDED.recommendation, strengths = EXCLUDED.strengths,
-                       missing_skills = EXCLUDED.missing_skills, ai_explanation = EXCLUDED.ai_explanation,
-                       llm_used = EXCLUDED.llm_used, model_name = EXCLUDED.model_name,
-                       model_version = EXCLUDED.model_version, screened_at = now()""",
-                c["application_id"], c["semantic_score"], c["skill_score"], c["experience_score"], c["education_score"],
-                c["overall_score"], c["recommendation"], c["strengths"], c["missing_skills"], c["ai_explanation"],
-                c["llm_used"], model or embeddings.model_name(), "llm" if c["llm_used"] else "deterministic")
+        await save_screening(conn, ranked, llm_used)
         moved = await conn.execute("UPDATE applications SET status = 'SCREENING' WHERE job_id = $1 AND status = 'APPLIED'", job_id)
     return {"screened": len(ranked), "llm_used": llm_used, "moved_to_screening": int(moved.split()[-1])}
 
@@ -258,11 +266,14 @@ async def application_detail(application_id: int, user: CurrentUser = Depends(re
                FROM interviews i JOIN recruiters r ON r.recruiter_id = i.interviewer_id
                WHERE i.application_id = $1 ORDER BY i.scheduled_at DESC""", application_id)
         offers = await conn.fetch("SELECT * FROM offers WHERE application_id = $1 ORDER BY issued_at DESC", application_id)
+        reviews = await conn.fetch(
+            """SELECT request_id, request_type, field, status, outcome, created_at, resolved_at
+               FROM screening_review_requests WHERE application_id = $1 ORDER BY created_at DESC""", application_id)
         allowed = await conn.fetch(
             "SELECT to_status FROM application_status_transitions WHERE from_status = $1 AND actor = 'RECRUITER'", app["status"])
     out.update(application=dict(app), screening=dict(screening) if screening else None,
                interviews=[dict(i) for i in interviews], offers=[dict(o) for o in offers],
-               allowed_transitions=[r["to_status"] for r in allowed])
+               allowed_transitions=[r["to_status"] for r in allowed], reviews=[dict(r) for r in reviews])
     return out
 
 

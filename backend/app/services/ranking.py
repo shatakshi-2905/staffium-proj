@@ -54,14 +54,47 @@ def _recommendation(score: float) -> str:
     return "STRONG_MATCH" if score >= 80 else "MATCH" if score >= 65 else "WEAK_MATCH" if score >= 45 else "REJECT"
 
 
-def _skill_score(spec: SearchSpec, have: set[int]) -> float | None:
+def _skill_score(spec: SearchSpec, have: set[int], shown: set[int] | None = None) -> float | None:
+    """Weighted share of the job's skills the candidate has. A skill only *listed* (never shown in work
+    history or added by the candidate themselves) earns half credit: this is what stops a
+    keyword-stuffed skills list from outranking real experience (see eval/ for the measurement)."""
+    shown = have if shown is None else shown
+
+    def credit(sid: int) -> float:
+        return 1.0 if sid in shown else 0.5 if sid in have else 0.0
+
     if spec.skills:
         total = sum(s.weight * (2 if s.is_required else 1) for s in spec.skills)
-        got = sum(s.weight * (2 if s.is_required else 1) for s in spec.skills if s.skill_id in have)
+        got = sum(s.weight * (2 if s.is_required else 1) * credit(s.skill_id) for s in spec.skills)
         return round(100 * got / total, 2) if total else None
     if spec.must_have_skill_ids:
-        return round(100 * len(set(spec.must_have_skill_ids) & have) / len(spec.must_have_skill_ids), 2)
+        return round(100 * sum(credit(sid) for sid in spec.must_have_skill_ids) / len(spec.must_have_skill_ids), 2)
     return None
+
+
+async def _skill_evidence(conn, resume_ids: list[int], applicant_ids: list[int], spec: SearchSpec):
+    """Returns f(applicant_id, resume_id, have) -> skill ids with evidence: used in the resume's work
+    history/projects, or added by the candidate by hand. Resumes processed before evidence was
+    recorded count every skill as shown."""
+    rows = await conn.fetch("SELECT resume_id, parsed_data -> 'evidenced_skills' AS ev FROM resumes WHERE resume_id = ANY($1::bigint[])",
+                            resume_ids)
+    ev = {r["resume_id"]: r["ev"] for r in rows}
+    manual = {}
+    for r in await conn.fetch("""SELECT applicant_id, array_agg(skill_id) AS ids FROM candidate_skills
+                                 WHERE applicant_id = ANY($1::bigint[]) AND source = 'MANUAL' GROUP BY applicant_id""", applicant_ids):
+        manual[r["applicant_id"]] = set(r["ids"])
+    wanted = {s.skill_id for s in spec.skills} | set(spec.must_have_skill_ids)
+    names_needed = await conn.fetch("SELECT skill_id, lower(skill_name) AS n FROM skills WHERE skill_id = ANY($1::bigint[])", list(wanted))
+    name_of = {r["skill_id"]: r["n"] for r in names_needed}
+
+    def shown(applicant_id: int, resume_id: int, have: set[int]) -> set[int]:
+        evidenced = ev.get(resume_id)
+        if not isinstance(evidenced, list):
+            return set(have)
+        lowered = {str(x).lower() for x in evidenced}
+        return {sid for sid in have if name_of.get(sid) in lowered} | (manual.get(applicant_id, set()) & have)
+
+    return shown
 
 
 def _experience_score(spec: SearchSpec, years: float) -> float:
@@ -70,42 +103,79 @@ def _experience_score(spec: SearchSpec, years: float) -> float:
     return round(min(100.0, 70 + 10 * years), 2)
 
 
-async def rank(conn, spec: SearchSpec, *, pool: str, use_llm: bool = True) -> tuple[list[dict], bool]:
-    """Returns (ranked candidates, whether the LLM contributed). pool is 'applications' or 'talent'."""
+async def rank(conn, spec: SearchSpec, *, pool: str, use_llm: bool = True,
+               only_application_ids: list[int] | None = None, trace: dict | None = None) -> tuple[list[dict], bool]:
+    """Returns (ranked candidates, whether the LLM contributed). pool is 'applications' or 'talent'.
+
+    only_application_ids re-scores specific applications (used by human review), whatever their
+    status. trace, if given, is filled with what each stage kept, for the evaluation harness."""
     query_vector = vector_literal(await embeddings.embed_query(
         embeddings.job_representation(spec.title, spec.description, [s.name for s in spec.skills])))
     keyword = _keyword_query(spec)
 
     # ---- Stage 1: hybrid retrieval -------------------------------------------------------------
+    # Union of the nearest resumes by meaning (pgvector, HNSW index) and the best keyword matches
+    # (tsvector, GIN index). The keyword half rescues resumes whose wording embeds poorly but name
+    # the right tools; the vector half finds people who describe the work without the keywords.
     if pool == "applications":
         stage1 = await conn.fetch(
-            """WITH q AS (SELECT $1::vector AS v, websearch_to_tsquery('english', $2) AS tsq)
+            """WITH q AS (SELECT $1::vector AS v, websearch_to_tsquery('english', $2) AS tsq),
+               eligible AS (
+                   SELECT a.application_id FROM applications a
+                   WHERE a.job_id = $3
+                     AND CASE WHEN $5::bigint[] IS NULL THEN a.status NOT IN ('WITHDRAWN', 'REJECTED', 'HIRED')
+                              ELSE a.application_id = ANY($5::bigint[]) END),
+               by_vector AS (
+                   SELECT a.application_id FROM applications a
+                   JOIN resume_embeddings re ON re.resume_id = a.resume_id
+                   WHERE a.application_id IN (SELECT application_id FROM eligible)
+                   ORDER BY re.embedding <=> $1::vector LIMIT $4),
+               by_keyword AS (
+                   SELECT a.application_id FROM applications a
+                   JOIN resumes r ON r.resume_id = a.resume_id CROSS JOIN q
+                   WHERE a.application_id IN (SELECT application_id FROM eligible) AND r.search_vector @@ q.tsq
+                   ORDER BY ts_rank_cd(r.search_vector, q.tsq, 32) DESC LIMIT $4)
                SELECT a.application_id, a.applicant_id, a.resume_id,
                       1 - (re.embedding <=> q.v)              AS semantic,
-                      ts_rank_cd(r.search_vector, q.tsq, 32)   AS keyword
+                      ts_rank_cd(r.search_vector, q.tsq, 32)   AS keyword,
+                      a.application_id IN (SELECT application_id FROM by_vector) AS via_vector
                FROM applications a
                JOIN resumes r            ON r.resume_id = a.resume_id
                JOIN resume_embeddings re ON re.resume_id = a.resume_id
                CROSS JOIN q
-               WHERE a.job_id = $3 AND a.status NOT IN ('WITHDRAWN', 'REJECTED', 'HIRED')
-               ORDER BY re.embedding <=> q.v
-               LIMIT $4""",
-            query_vector, keyword, spec.job_id, STAGE1_LIMIT)
+               WHERE a.application_id IN (SELECT application_id FROM by_vector UNION SELECT application_id FROM by_keyword)
+               ORDER BY semantic DESC""",
+            query_vector, keyword, spec.job_id, STAGE1_LIMIT, only_application_ids)
     else:
         stage1 = await conn.fetch(
-            """WITH q AS (SELECT $1::vector AS v, websearch_to_tsquery('english', $2) AS tsq)
+            """WITH q AS (SELECT $1::vector AS v, websearch_to_tsquery('english', $2) AS tsq),
+               by_vector AS (
+                   SELECT r.resume_id FROM resumes r
+                   JOIN resume_embeddings re ON re.resume_id = r.resume_id
+                   JOIN applicants ap        ON ap.applicant_id = r.applicant_id
+                   WHERE r.is_active AND r.processing_status = 'COMPLETED' AND ap.is_discoverable
+                   ORDER BY re.embedding <=> $1::vector LIMIT $3),
+               by_keyword AS (
+                   SELECT r.resume_id FROM resumes r
+                   JOIN applicants ap ON ap.applicant_id = r.applicant_id CROSS JOIN q
+                   WHERE r.is_active AND r.processing_status = 'COMPLETED' AND ap.is_discoverable AND r.search_vector @@ q.tsq
+                   ORDER BY ts_rank_cd(r.search_vector, q.tsq, 32) DESC LIMIT $3)
                SELECT NULL::bigint AS application_id, r.applicant_id, r.resume_id,
                       1 - (re.embedding <=> q.v)              AS semantic,
-                      ts_rank_cd(r.search_vector, q.tsq, 32)   AS keyword
+                      ts_rank_cd(r.search_vector, q.tsq, 32)   AS keyword,
+                      r.resume_id IN (SELECT resume_id FROM by_vector) AS via_vector
                FROM resumes r
                JOIN resume_embeddings re ON re.resume_id = r.resume_id
-               JOIN applicants ap        ON ap.applicant_id = r.applicant_id
                CROSS JOIN q
-               WHERE r.is_active AND r.processing_status = 'COMPLETED' AND ap.is_discoverable
-               ORDER BY re.embedding <=> q.v
-               LIMIT $3""",
+               WHERE r.resume_id IN (SELECT resume_id FROM by_vector UNION SELECT resume_id FROM by_keyword)
+               ORDER BY semantic DESC""",
             query_vector, keyword, STAGE1_LIMIT)
+    if trace is not None:
+        trace["stage1"] = [{"applicant_id": r["applicant_id"], "semantic": float(r["semantic"]), "keyword": float(r["keyword"]),
+                            "via": "vector" if r["via_vector"] else "keyword"} for r in stage1]
     if not stage1:
+        if trace is not None:
+            trace["stage2"], trace["llm_reviewed"] = [], []
         return [], False
     retrieval = {r["applicant_id"]: r for r in stage1}
 
@@ -127,10 +197,13 @@ async def rank(conn, spec: SearchSpec, *, pool: str, use_llm: bool = True) -> tu
         list(retrieval), hard_filters, spec.min_experience,
         _like_pattern(spec.location) if spec.location else None, spec.max_notice_days, spec.must_have_skill_ids)
 
+    evidence = await _skill_evidence(conn, [r["resume_id"] for r in stage1], [c["applicant_id"] for c in stage2], spec)
+
     candidates = []
     for c in stage2:
         r = retrieval[c["applicant_id"]]
         have = set(c["skill_ids"])
+        shown = evidence(c["applicant_id"], r["resume_id"], have)
         semantic = max(0.0, min(100.0, (float(r["semantic"]) - 0.2) / 0.6 * 100))
         years = float(c["experience_years"] or 0)
         candidates.append({
@@ -139,12 +212,16 @@ async def rank(conn, spec: SearchSpec, *, pool: str, use_llm: bool = True) -> tu
             "experience_years": years, "skill_ids": have,
             "semantic_score": round(semantic, 2),
             "hybrid": 0.75 * float(r["semantic"]) + 0.25 * float(r["keyword"]),
-            "skill_score": _skill_score(spec, have),
+            "skill_score": _skill_score(spec, have, shown),
             "experience_score": _experience_score(spec, years),
             "missing_skills": [s.name for s in sorted(spec.skills, key=lambda s: not s.is_required) if s.skill_id not in have],
             "matched_skills": [s.name for s in spec.skills if s.skill_id in have],
+            "listed_only_skills": [s.name for s in spec.skills if s.skill_id in have and s.skill_id not in shown],
         })
     candidates.sort(key=lambda x: x["hybrid"], reverse=True)
+    if trace is not None:
+        trace["stage2"] = [c["applicant_id"] for c in candidates]
+        trace["llm_reviewed"] = [c["applicant_id"] for c in candidates[:STAGE2_LIMIT]] if use_llm and llm.available() else []
 
     # ---- Stage 3: LLM re-ranking of the top 20 only --------------------------------------------------
     llm_results = {}
@@ -164,8 +241,11 @@ async def rank(conn, spec: SearchSpec, *, pool: str, use_llm: bool = True) -> tu
             parts = ([(0.5, skill), (0.3, c["semantic_score"]), (0.2, c["experience_score"])] if skill is not None
                      else [(0.6, c["semantic_score"]), (0.4, c["experience_score"])])
             strengths = []
-            if c["matched_skills"]:
-                strengths.append("Has " + ", ".join(c["matched_skills"][:4]))
+            shown_names = [n for n in c["matched_skills"] if n not in c["listed_only_skills"]]
+            if shown_names:
+                strengths.append("Has used " + ", ".join(shown_names[:4]))
+            if c["listed_only_skills"]:
+                strengths.append("Lists " + ", ".join(c["listed_only_skills"][:3]) + " without describing where they were used")
             if c["experience_years"]:
                 strengths.append(f"{c['experience_years']:g} years of experience")
             c.update(education_score=None, strengths=strengths, ai_explanation=None, llm_used=False)

@@ -75,16 +75,18 @@ def warm_up() -> None:
 
 def resume_representation(parsed: dict, text: str) -> str:
     """The compact text that gets embedded for a resume. bge-small reads ~512 tokens, so the
-    most signal-dense parts go first and the raw text fills the remainder."""
+    most signal-dense parts go first and the (already sanitised) resume text fills the remainder.
+    Company names are left out of the structured part on purpose: employer prestige isn't job fit."""
     parts = []
     if parsed.get("headline"):
         parts.append(str(parsed["headline"]))
     if parsed.get("summary"):
         parts.append(str(parsed["summary"]))
-    if parsed.get("skills"):
-        parts.append("Skills: " + ", ".join(map(str, parsed["skills"][:60])))
+    skills = parsed.get("matched_skills") or parsed.get("skills")   # canonical names: "Postgres" -> "PostgreSQL"
+    if skills:
+        parts.append("Skills: " + ", ".join(map(str, skills[:60])))
     for exp in (parsed.get("experience") or [])[:6]:
-        parts.append(f"{exp.get('title') or ''} at {exp.get('company') or ''}. {exp.get('summary') or ''}")
+        parts.append(f"{exp.get('title') or ''}. {exp.get('summary') or ''}")
     for proj in (parsed.get("projects") or [])[:5]:
         parts.append(f"Project: {proj.get('title') or ''} ({', '.join(proj.get('technologies') or [])})")
     head = "\n".join(p for p in parts if p.strip())

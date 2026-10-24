@@ -1,0 +1,7 @@
+# pip install pre-commit && pre-commit install
+# Blocks commits that contain AWS keys, Supabase service keys or other secrets.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks

@@ -17,6 +17,9 @@ async def my_applications(page: Page = Depends(), user: CurrentUser = Depends(re
                       j.job_id, j.title AS job_title, j.location, c.company_name,
                       o.offer_id, o.salary, o.currency, o.joining_date, o.expires_at, o.offer_status,
                       (cf.feedback_id IS NOT NULL) AS has_feedback,
+                      (SELECT rr.status FROM screening_review_requests rr WHERE rr.application_id = a.application_id
+                       ORDER BY rr.created_at DESC LIMIT 1) AS review_status,
+                      EXISTS (SELECT 1 FROM screening_results sr WHERE sr.application_id = a.application_id) AS screened,
                       count(*) OVER () AS total_count
                FROM applications a
                JOIN job_postings j ON j.job_id = a.job_id

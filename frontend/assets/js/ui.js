@@ -320,3 +320,10 @@ export function chips(names, cls = "") {
   if (!names?.length) return h("span", { class: "faint small" }, "None");
   return h("div", { class: "chips" }, names.map((n) => h("span", { class: `chip ${cls}` }, n)));
 }
+
+// ------------------------------------------------------------------ review requests
+const REVIEW_COLOR = { OPEN: "amber", IN_REVIEW: "blue", RESOLVED: "green", WITHDRAWN: "" };
+export const REVIEW_STATUS = { OPEN: "Waiting", IN_REVIEW: "In review", RESOLVED: "Resolved", WITHDRAWN: "Withdrawn" };
+export const REVIEW_OUTCOME = { UPHELD: "Decision upheld", RESCREENED: "Re-screened", OVERRIDDEN: "Score adjusted", REINSTATED: "Reinstated" };
+export const REVIEW_FIELD = { SKILLS: "Skills", EXPERIENCE_YEARS: "Years of experience", EDUCATION: "Education", WORK_HISTORY: "Work history", OTHER: "Something else" };
+export const reviewBadge = (status) => h("span", { class: `badge ${REVIEW_COLOR[status] || ""}` }, REVIEW_STATUS[status] || humanize(status));

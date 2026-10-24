@@ -326,3 +326,36 @@ class OfferIn(Strict):
 
 class OfferResponseIn(Strict):
     decision: Literal["ACCEPTED", "REJECTED"]
+
+
+# --- Screening review requests ------------------------------------------------------------------
+ReviewField = Literal["SKILLS", "EXPERIENCE_YEARS", "EDUCATION", "WORK_HISTORY", "OTHER"]
+
+
+class ReviewRequestIn(Strict):
+    request_type: Literal["EXTRACTION_ERROR", "HUMAN_REVIEW"]
+    field: ReviewField | None = None
+    claimed_value: S(1000) | None = None
+    reason: S(2000, 10)
+
+    @model_validator(mode="after")
+    def field_required(self):
+        if self.request_type == "EXTRACTION_ERROR" and not self.field:
+            raise ValueError("Say which information is wrong")
+        if self.request_type == "HUMAN_REVIEW":
+            self.field = None
+        return self
+
+
+class ReviewResolveIn(Strict):
+    outcome: Literal["UPHELD", "RESCREENED", "OVERRIDDEN", "REINSTATED"]
+    note: S(2000, 10)
+    override_score: Decimal | None = Field(None, ge=0, le=100, decimal_places=2)
+
+    @model_validator(mode="after")
+    def score_matches_outcome(self):
+        if self.outcome == "OVERRIDDEN" and self.override_score is None:
+            raise ValueError("An override needs the score you're setting")
+        if self.outcome != "OVERRIDDEN":
+            self.override_score = None
+        return self

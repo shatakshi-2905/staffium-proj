@@ -34,6 +34,7 @@ _PG_CONSTRAINT_MESSAGES = {
     "job_skills_pkey": "That skill is listed twice",
     "applicants_user_id_key": "Your profile already exists",
     "recruiters_user_id_key": "You already belong to a company",
+    "uq_review_one_open_per_type": "You already have an open request like this for this application",
 }
 
 
