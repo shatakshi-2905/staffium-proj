@@ -1,0 +1,22 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Build files
+dist/
+build/
+
+# macOS / IDE
+.DS_Store
+.vscode/
+.idea/
