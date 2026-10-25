@@ -1,4 +1,4 @@
-# Shortlist: notes for Claude Code
+# Staffium: notes for Claude Code
 
 Applicant tracking system with AI resume screening, built database-first on PostgreSQL (Supabase).
 DBMS college project, also a portfolio piece: database design and security quality matter most.
@@ -28,7 +28,8 @@ DBMS college project, also a portfolio piece: database design and security quali
   user-readable message (mapped to HTTP status in `app/errors.py`).
 - Request bodies use Pydantic models extending `Strict` in `app/schemas.py`. List endpoints are paginated via `Page`.
 - Frontend: never use `innerHTML`; build DOM with `h()` from `assets/js/ui.js`. No inline scripts, no CDNs (strict CSP).
-- UI style: Supabase-like dark theme. Use tokens in `theme.css`; borders not shadows; accent only for primary actions.
+- UI style: "Bordeaux & brass" dark theme (warm wine-black, ivory text, antique-gold accent, serif display via `--serif`).
+  Use tokens in `theme.css`, never raw colours; borders not shadows; gold accent only for primary actions and the score meter.
 - Add or update tests in `backend/tests/` for every behaviour change, and run them before saying something works.
 - Any change to parsing, embeddings or ranking: run `eval/run_eval.py` and compare with `eval/reports/02-after-fixes.md`.
   Name, city, college and career-break twins must keep a score change of 0.

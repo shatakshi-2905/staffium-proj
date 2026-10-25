@@ -1,6 +1,7 @@
 // Password reset landing page. Supabase puts a short-lived recovery token in the URL fragment;
 // it is read once, kept only in memory, and wiped from the address bar immediately.
 import { publicPost } from "./api.js";
+import "./public.js";
 import { busy, clear, field, h, input, readForm, showFormError } from "./ui.js";
 
 const fragment = new URLSearchParams(window.location.hash.slice(1));
@@ -20,7 +21,7 @@ if (!token) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     showFormError(form, null);
-    await busy(form.querySelector("[type=submit]"), async () => {
+    await busy(e.submitter, async () => {
       try {
         const res = await publicPost("/api/auth/reset-password", { access_token: token, password: readForm(form).password });
         clear(root, h("div", { class: "form-note" }, res.message),
@@ -30,3 +31,4 @@ if (!token) {
   });
   clear(root, form);
 }
+

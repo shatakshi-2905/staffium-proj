@@ -14,7 +14,7 @@ from ..services.parsing import detect_file_type, safe_display_name
 from ..services.resume_pipeline import process_resume
 
 router = APIRouter(prefix="/api/resumes", tags=["resumes"])
-log = logging.getLogger("shortlist.resumes")
+log = logging.getLogger("staffium.resumes")
 S = get_settings()
 
 

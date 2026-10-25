@@ -270,7 +270,7 @@ async def test_full_hiring_flow(client):
             cal = next(p for p in msg.walk() if p.get_content_type() == "text/calendar")
             ics = cal.get_payload(decode=True).decode()
             assert cal.get_param("method") == "REQUEST" and "METHOD:REQUEST" in ics
-            assert f"UID:interview-{r['interview_id']}@shortlist" in ics
+            assert f"UID:interview-{r['interview_id']}@staffium" in ics
     assert await worker.deliver_outbox(batch=200) >= len(rows)
 
 
@@ -388,6 +388,12 @@ async def test_security_headers_and_cors(client):
     assert ok.headers.get("access-control-allow-origin") == "http://localhost:5500"
     evil = await client.options("/api/me", headers={"Origin": "https://evil.test", "Access-Control-Request-Method": "GET"})
     assert "access-control-allow-origin" not in evil.headers
+    # A 413 from the body limit must still carry CORS, or the browser reports a network error instead.
+    big = await client.post("/api/auth/login", content=b"x" * 300_000,
+                            headers={"Origin": "http://localhost:5500", "Content-Type": "application/json"})
+    assert big.status_code == 413
+    assert big.headers.get("access-control-allow-origin") == "http://localhost:5500"
+    assert big.headers["x-content-type-options"] == "nosniff"
 
 
 async def test_pagination_is_capped(client):

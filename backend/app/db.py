@@ -35,7 +35,7 @@ async def open_pool() -> None:
         statement_cache_size=0,
         command_timeout=30,
         init=_init_connection,
-        server_settings={"search_path": "public, extensions", "application_name": "shortlist-api"},
+        server_settings={"search_path": "public, extensions", "application_name": "staffium-api"},
     )
 
 

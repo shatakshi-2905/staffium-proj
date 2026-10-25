@@ -73,6 +73,17 @@ const ICONS = {
   refresh: "M21 2v6h-6M3 22v-6h6M3.5 9a9 9 0 0 1 14.85-3.36L21 8M3 16l2.65 2.36A9 9 0 0 0 20.5 15",
   trash: "M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6",
   compare: "M8 3v18M16 3v18M3 8h5M16 16h5",
+  "chevron-down": "m6 9 6 6 6-6",
+  "chevron-right": "m9 18 6-6-6-6",
+  "chevrons-up-down": "m7 15 5 5 5-5M7 9l5-5 5 5",
+  "chevrons-left": "m11 17-5-5 5-5M18 17l-5-5 5-5",
+  sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42",
+  moon: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z",
+  monitor: "M3 4h18a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 21h8M12 17v4",
+  "arrow-right": "M5 12h14M12 5l7 7-7 7",
+  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+  zap: "M13 2 3 14h9l-1 8 10-12h-9z",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
 };
 
 export function icon(name, extra = {}) {
@@ -85,6 +96,7 @@ export function icon(name, extra = {}) {
   svg.setAttribute("stroke-linecap", "round");
   svg.setAttribute("stroke-linejoin", "round");
   svg.setAttribute("aria-hidden", "true");
+  if (extra.class) svg.setAttribute("class", extra.class);
   const p = document.createElementNS(NS, "path");
   p.setAttribute("d", ICONS[name] || ICONS.info);
   svg.append(p);
@@ -98,10 +110,10 @@ export function brandMark() {
   svg.setAttribute("class", "brand-mark");
   svg.setAttribute("aria-hidden", "true");
   // Three bars of decreasing length: a list being narrowed to a shortlist.
-  [[3, 5, 18], [3, 11, 12], [3, 17, 6]].forEach(([x, y, w], i) => {
+  // Colours come from theme.css (.brand-mark rect).
+  [[3, 5, 18], [3, 11, 12], [3, 17, 6]].forEach(([x, y, w]) => {
     const r = document.createElementNS(NS, "rect");
     r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", w); r.setAttribute("height", 3); r.setAttribute("rx", 1.5);
-    r.setAttribute("fill", i === 2 ? "#4fc28f" : "#5a5a5a");
     svg.append(r);
   });
   return svg;
@@ -210,8 +222,9 @@ export function confirmDialog(title, message, actionLabel = "Confirm", danger = 
 }
 
 // ------------------------------------------------------------------ forms
+let fieldSeq = 0;
 export function field(label, input, { hint, name } = {}) {
-  const id = input.id || `f-${name || input.name || Math.random().toString(36).slice(2)}`;
+  const id = input.id || `f-${name || input.name || "field"}-${++fieldSeq}`;   // unique even when two forms share field names
   input.id = id;
   return h("div", { class: "field", dataset: { field: input.name || name || "" } },
     h("label", { for: id }, label), input, hint ? h("div", { class: "hint" }, hint) : null);
@@ -235,6 +248,7 @@ export function readForm(form) {
     if (!el.name || el.disabled) continue;
     if (el.type === "checkbox") out[el.name] = el.checked;
     else if (el.type === "number") out[el.name] = el.value === "" ? null : Number(el.value);
+    else if (el.type === "password") out[el.name] = el.value;   // spaces can be part of a password; send it exactly as typed
     else out[el.name] = el.value.trim() === "" ? null : el.value.trim();
   }
   return out;
@@ -269,10 +283,21 @@ export const loading = (text = "Loading") => h("div", { class: "loading" }, h("s
 export function empty(title, text, action) {
   return h("div", { class: "empty" }, h("h3", {}, title), text ? h("p", {}, text) : null, action || null);
 }
-export function panel(title, body, { actions, flush = false } = {}) {
+// Cards have up to three bands: header (title + meta/actions), body, footer (the form's buttons).
+export function panel(title, body, { actions, flush = false, footer } = {}) {
   return h("section", { class: "panel" },
     title ? h("div", { class: "panel-head" }, h("h2", {}, title), actions ? h("div", { class: "row" }, actions) : null) : null,
-    h("div", { class: `panel-body ${flush ? "flush" : ""}` }, body));
+    h("div", { class: `panel-body ${flush ? "flush" : ""}` }, body),
+    footer ? h("div", { class: "panel-foot" }, footer) : null);
+}
+
+// Shown while the server works on something (e.g. reading an uploaded resume). The bar is
+// indeterminate: the API reports a status, not a percentage.
+export function processing(title, text) {
+  return h("div", { class: "processing", role: "status", "aria-live": "polite" },
+    h("div", { class: "processing-icon" }, icon("refresh")),
+    h("h3", {}, title), text ? h("p", {}, text) : null,
+    h("div", { class: "progress", "aria-hidden": "true" }, h("span")));
 }
 export function pageHead(title, description, actions) {
   return h("div", { class: "page-head" },
@@ -280,8 +305,14 @@ export function pageHead(title, description, actions) {
     actions ? h("div", { class: "row" }, actions) : null);
 }
 
+// On narrow screens each row becomes a card (theme.css). Every cell carries its column label, the
+// main column becomes the card title (column option mobile: "title"), and cells without a label are
+// treated as actions (mobile: "actions") or, for a row checkbox, pinned to the corner (mobile: "select").
 export function table(columns, rows, { onRowClick, emptyState } = {}) {
   if (!rows.length) return emptyState || empty("Nothing here yet");
+  let titleIdx = columns.findIndex((c) => c.mobile === "title");
+  if (titleIdx < 0) titleIdx = columns.findIndex((c) => c.label && c.label !== "#" && !c.mobile);
+  const mobileClass = (c, i) => (i === titleIdx ? "m-title" : c.mobile ? `m-${c.mobile}` : c.label ? "" : "m-actions");
   const tbody = h("tbody");
   for (const r of rows) {
     const tr = h("tr", { class: onRowClick ? "clickable" : "" });
@@ -290,11 +321,12 @@ export function table(columns, rows, { onRowClick, emptyState } = {}) {
       tr.addEventListener("click", (e) => { if (!e.target.closest("button, a, input, select")) onRowClick(r); });
       tr.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === tr) onRowClick(r); });
     }
-    for (const c of columns) tr.append(h("td", { class: c.class || "" }, c.render ? c.render(r) : r[c.key] ?? "-"));
+    columns.forEach((c, i) => tr.append(h("td", { class: [c.class, mobileClass(c, i)].filter(Boolean).join(" "), "data-label": c.label || null },
+      c.render ? c.render(r) : r[c.key] ?? "-")));
     tbody.append(tr);
   }
-  return h("div", { class: "table-wrap" },
-    h("table", { class: "table" },
+  return h("div", { class: "table-wrap", "data-stack": true },
+    h("table", { class: "table", "data-stack": true },
       h("thead", {}, h("tr", {}, columns.map((c) => h("th", { class: c.class || "", scope: "col" }, c.label)))), tbody));
 }
 
@@ -327,3 +359,4 @@ export const REVIEW_STATUS = { OPEN: "Waiting", IN_REVIEW: "In review", RESOLVED
 export const REVIEW_OUTCOME = { UPHELD: "Decision upheld", RESCREENED: "Re-screened", OVERRIDDEN: "Score adjusted", REINSTATED: "Reinstated" };
 export const REVIEW_FIELD = { SKILLS: "Skills", EXPERIENCE_YEARS: "Years of experience", EDUCATION: "Education", WORK_HISTORY: "Work history", OTHER: "Something else" };
 export const reviewBadge = (status) => h("span", { class: `badge ${REVIEW_COLOR[status] || ""}` }, REVIEW_STATUS[status] || humanize(status));
+

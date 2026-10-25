@@ -1,5 +1,6 @@
 // Sign in / create account / forgot password for one portal (data-portal on <body>).
 import { publicPost, session } from "./api.js";
+import "./public.js";
 import { busy, clear, field, h, input, readForm, showFormError } from "./ui.js";
 
 const portal = document.body.dataset.portal;            // "applicant" | "recruiter"
@@ -37,7 +38,7 @@ function signIn() {
     e.preventDefault();
     showFormError(form, null);
     const data = readForm(form);
-    await busy(form.querySelector("[type=submit]"), async () => {
+    await busy(e.submitter, async () => {
       try {
         const s = await publicPost("/api/auth/login", { ...data, portal });
         session.set(s);
@@ -71,7 +72,7 @@ function signUp() {
     e.preventDefault();
     showFormError(form, null);
     const data = readForm(form);
-    await busy(form.querySelector("[type=submit]"), async () => {
+    await busy(e.submitter, async () => {
       try {
         const res = await publicPost("/api/auth/signup", { ...data, portal });
         if (!res.needs_confirmation) {
@@ -99,7 +100,7 @@ function forgot() {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     showFormError(form, null);
-    await busy(form.querySelector("[type=submit]"), async () => {
+    await busy(e.submitter, async () => {
       try {
         const res = await publicPost("/api/auth/forgot-password", { ...readForm(form), portal });
         clear(root, h("div", { class: "form-note" }, res.message),
@@ -111,3 +112,4 @@ function forgot() {
 }
 
 signIn();
+

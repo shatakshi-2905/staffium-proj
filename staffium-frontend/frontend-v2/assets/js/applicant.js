@@ -4,16 +4,17 @@ import { startApp } from "./shell.js";
 import { notificationsPage } from "./views-common.js";
 import {
   REVIEW_FIELD, REVIEW_OUTCOME, badge, busy, chips, clear, confirmDialog, empty, errorText, extLink, field, fmtAgo, fmtDate, fmtDateTime, fmtMoney,
-  fmtSalaryRange, fmtYears, h, humanize, icon, input, loading, modal, pageHead, pager, panel, readForm, score, select,
+  fmtSalaryRange, fmtYears, h, humanize, icon, input, loading, modal, pageHead, pager, panel, processing, readForm, score, select,
   reviewBadge, showFormError, table, tabs, textarea, toast,
 } from "./ui.js";
 
 const NAV = [
+  { group: "Job search" },
   { key: "dashboard", path: "", label: "Dashboard", icon: "home" },
   { key: "jobs", path: "jobs", label: "Find jobs", icon: "search" },
-  { key: "applications", path: "applications", label: "Applications", icon: "layers" },
+  { key: "applications", path: "applications", label: "Applications", icon: "layers",
+    children: [{ key: "reviews", path: "reviews", label: "Review requests", icon: "compare" }] },
   { key: "interviews", path: "interviews", label: "Interviews", icon: "calendar" },
-  { key: "reviews", path: "reviews", label: "Review requests", icon: "compare" },
   { group: "You" },
   { key: "profile", path: "profile", label: "Profile", icon: "user" },
   { key: "resume", path: "resume", label: "Resume", icon: "file" },
@@ -25,8 +26,8 @@ const OPEN_STAGES = ["APPLIED", "SCREENING", "SHORTLISTED", "INTERVIEW", "OFFER"
 // =============================================================================================
 // Onboarding
 // =============================================================================================
-function onboarding(el, me) {
-  const form = h("form", { class: "form", novalidate: true },
+function onboarding(el, me, { done }) {
+  const form = h("form", { class: "form", id: "onboard-form", novalidate: true },
     h("div", { class: "form-row" },
       field("First name", input("first_name", { required: true, maxlength: 100, autocomplete: "given-name" })),
       field("Last name", input("last_name", { required: true, maxlength: 100, autocomplete: "family-name" }))),
@@ -36,21 +37,22 @@ function onboarding(el, me) {
       field("City", input("location", { maxlength: 150, autocomplete: "address-level2" })),
       field("Phone", input("phone", { type: "tel", maxlength: 20, autocomplete: "tel" }))),
     h("label", { class: "check" }, h("input", { type: "checkbox", name: "is_discoverable", checked: true }),
-      "Let recruiters find my profile in talent search"),
-    h("div", { class: "form-actions" }, h("button", { class: "btn btn-primary", type: "submit" }, "Create profile")));
+      "Let recruiters find my profile in talent search"));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     showFormError(form, null);
-    await busy(form.querySelector("[type=submit]"), async () => {
+    await busy(e.submitter, async () => {
       try {
         await post("/api/applicant/profile", readForm(form));
-        window.location.hash = "#/resume";
-        window.location.reload();
+        done("#/resume?setup=1");
       } catch (err) { showFormError(form, err); }
     });
   });
   clear(el, pageHead("Set up your profile", `Signed in as ${me.email}. Next you'll upload your resume.`),
-    h("div", { style: { maxWidth: "640px" } }, panel(null, form)));
+    h("div", { class: "narrow" }, panel("Your details", form, {
+      actions: h("span", { class: "step-meta" }, "Step 1 of 2"),
+      footer: h("button", { class: "btn btn-primary", type: "submit", form: "onboard-form" }, "Continue"),
+    })));
 }
 
 // =============================================================================================
@@ -117,7 +119,7 @@ const kpi = (label, value) => h("div", { class: "kpi" }, h("div", { class: "labe
 // =============================================================================================
 const SECTION_FORMS = {
   experience: {
-    title: "Experience", add: "Add experience",
+    title: "Experience", idKey: "experience_id", add: "Add experience",
     fields: () => [
       h("div", { class: "form-row" }, field("Company", input("company_name", { required: true, maxlength: 200 })),
         field("Title", input("designation", { required: true, maxlength: 150 }))),
@@ -130,7 +132,7 @@ const SECTION_FORMS = {
       h("div", { class: "sub" }, `${fmtDate(x.start_date)} - ${x.is_current ? "Present" : fmtDate(x.end_date)}`)],
   },
   education: {
-    title: "Education", add: "Add education",
+    title: "Education", idKey: "education_id", add: "Add education",
     fields: () => [
       field("Institution", input("institution", { required: true, maxlength: 200 })),
       h("div", { class: "form-row" }, field("Degree", input("degree", { required: true, maxlength: 120, placeholder: "B.Tech" })),
@@ -143,7 +145,7 @@ const SECTION_FORMS = {
       h("div", { class: "sub" }, [x.institution, [x.start_year, x.end_year].filter(Boolean).join(" - "), x.cgpa ? `CGPA ${x.cgpa}` : null].filter(Boolean).join(", "))],
   },
   projects: {
-    title: "Projects", add: "Add project",
+    title: "Projects", idKey: "project_id", add: "Add project",
     fields: () => [
       field("Title", input("title", { required: true, maxlength: 200 })),
       field("Technologies", input("technologies", { maxlength: 600, placeholder: "Python, FastAPI, PostgreSQL" }), { hint: "Separate with commas." }),
@@ -155,7 +157,7 @@ const SECTION_FORMS = {
       x.project_url ? h("div", { class: "small" }, extLink(x.project_url)) : null],
   },
   certifications: {
-    title: "Certifications", add: "Add certification",
+    title: "Certifications", idKey: "certification_id", add: "Add certification",
     fields: () => [
       field("Name", input("name", { required: true, maxlength: 200 })),
       h("div", { class: "form-row" }, field("Issuer", input("issuer", { maxlength: 200 })), field("Issued", input("issue_date", { type: "date" }))),
@@ -166,12 +168,21 @@ const SECTION_FORMS = {
   },
 };
 
+// Each profile section names its id field explicitly. If the API ever renames it, fall back to the
+// first "<something>_id" key (and say so in the console) instead of deleting the wrong thing.
+function entryId(entry, idKey) {
+  if (entry[idKey] !== undefined) return entry[idKey];
+  const guess = Object.keys(entry).find((k) => k.endsWith("_id") && k !== "applicant_id");
+  console.warn(`Expected "${idKey}" on a profile entry; using "${guess}" instead.`);
+  return entry[guess];
+}
+
 async function profilePage(ctx) {
   const [data, skillDict] = await Promise.all([get("/api/applicant/profile"), get("/api/skills")]);
   if (!ctx.alive()) return;
   const p = data.profile;
 
-  const form = h("form", { class: "form", novalidate: true },
+  const form = h("form", { class: "form", id: "profile-form", novalidate: true },
     h("div", { class: "form-row" }, field("First name", input("first_name", { value: p.first_name, required: true, maxlength: 100 })),
       field("Last name", input("last_name", { value: p.last_name, required: true, maxlength: 100 }))),
     field("Headline", input("headline", { value: p.headline || "", maxlength: 160 })),
@@ -183,12 +194,11 @@ async function profilePage(ctx) {
       field("Portfolio", input("portfolio_url", { value: p.portfolio_url || "", type: "url", placeholder: "https://" }))),
     h("label", { class: "check" }, h("input", { type: "checkbox", name: "is_discoverable", checked: p.is_discoverable }),
       "Let recruiters find my profile in talent search"),
-    h("p", { class: "faint xs" }, "When this is off, only companies you apply to can see your profile and resume."),
-    h("div", { class: "form-actions" }, h("button", { class: "btn btn-primary", type: "submit" }, "Save changes")));
+    h("p", { class: "faint xs" }, "When this is off, only companies you apply to can see your profile and resume."));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     showFormError(form, null);
-    await busy(form.querySelector("[type=submit]"), async () => {
+    await busy(e.submitter, async () => {
       try { await patch("/api/applicant/profile", readForm(form)); toast("Changes saved"); } catch (err) { showFormError(form, err); }
     });
   });
@@ -227,7 +237,7 @@ async function profilePage(ctx) {
       h("div", { class: "grow" }, cfg.render(x), x.source === "RESUME" ? h("span", { class: "faint xs" }, "Imported from your resume") : null),
       h("button", { class: "btn btn-ghost btn-sm", "aria-label": "Delete", onclick: async () => {
         if (!(await confirmDialog("Delete this entry?", "This can't be undone.", "Delete", true))) return;
-        try { await del(`/api/applicant/${key}/${x[Object.keys(x).find((k) => k.endsWith("_id") && k !== "applicant_id")]}`); ctx.rerender(); }
+        try { await del(`/api/applicant/${key}/${entryId(x, cfg.idKey)}`); ctx.rerender(); }
         catch (err) { toast(errorText(err), "error"); }
       } }, icon("trash")))))
       : h("p", { class: "muted small" }, `No ${cfg.title.toLowerCase()} added.`);
@@ -237,7 +247,7 @@ async function profilePage(ctx) {
   clear(ctx.el,
     pageHead("Profile", "What recruiters see when they open your application."),
     h("div", { class: "split" },
-      h("div", { class: "stack" }, panel("Personal details", form), panel("Skills", h("div", { class: "stack" }, skillChips, addSkill)), ...sections),
+      h("div", { class: "stack" }, panel("Personal details", form, { footer: h("button", { class: "btn btn-primary", type: "submit", form: "profile-form" }, "Save changes") }), panel("Skills", h("div", { class: "stack" }, skillChips, addSkill)), ...sections),
       h("div", { class: "stack" },
         panel(`${data.completeness.percent}% complete`, data.completeness.missing.length
           ? h("ul", { class: "small", style: { margin: 0, paddingLeft: "18px", color: "var(--text-muted)" } }, data.completeness.missing.map((m) => h("li", {}, m)))
@@ -273,25 +283,27 @@ async function resumePage(ctx) {
   const analysis = active?.processing_status === "COMPLETED" ? await get(`/api/resumes/${active.resume_id}`) : null;
   if (!ctx.alive()) return;
 
+  const setup = ctx.query.get("setup") === "1";   // arrived from onboarding
   const fileInput = h("input", { type: "file", accept: ".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document", "aria-label": "Choose resume file" });
-  const status = h("div");
   const drop = h("label", { class: "drop" }, fileInput, icon("upload"),
-    h("strong", {}, active ? "Upload a new version" : "Upload your resume"),
+    h("strong", {}, "Click or drag your resume here"),
     h("span", { class: "small" }, "PDF or Word (.docx), up to 5 MB. Text-based files only; scanned images can't be read."));
+  const uploadBody = h("div", { class: "stack" }, drop);
   const send = async (file) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { toast("That file is larger than 5 MB", "error"); return; }
     const fd = new FormData();
     fd.append("file", file);
-    clear(status, loading("Uploading"));
+    clear(uploadBody, processing("Uploading your resume", "Sending the file. Keep this page open."));
     try {
       const res = await upload("/api/resumes", fd);
-      clear(status, loading("Reading your resume. This takes a few seconds."));
+      if (ctx.alive()) clear(uploadBody, processing("Reading your resume", "We're picking out your roles, education and skills. This usually takes a few seconds."));
       await waitForProcessing(res.resume_id, ctx);
       if (ctx.alive()) ctx.rerender();
-    } catch (err) { clear(status, h("div", { class: "form-error" }, errorText(err))); }
+    } catch (err) { if (ctx.alive()) clear(uploadBody, drop, h("div", { class: "form-error", role: "alert" }, errorText(err))); }
   };
-  fileInput.addEventListener("change", () => send(fileInput.files[0]));
+  // Reset after reading so picking the same file again (e.g. after a failed upload) still fires "change".
+  fileInput.addEventListener("change", () => { const f = fileInput.files[0]; fileInput.value = ""; send(f); });
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); send(e.dataTransfer.files[0]); });
@@ -319,10 +331,15 @@ async function resumePage(ctx) {
       h("p", { class: "faint xs" }, "Recognised skills were added to your profile. Anything you added by hand stays as you set it.")));
   }
 
+  const setupNote = setup ? h("div", { class: "callout info" }, icon("info"), active
+    ? h("div", { class: "row grow" }, h("span", { class: "grow" }, "Your resume is added and your profile is ready."), h("a", { class: "btn btn-primary btn-sm", href: "#/" }, "Go to dashboard"))
+    : h("span", {}, "Your profile is saved. Upload your resume so we can match you to roles. ", h("a", { href: "#/" }, "Skip for now"))) : null;
+
   clear(ctx.el,
     pageHead("Resume", "Your resume is read once when you upload it. Every application uses the version that's current when you apply."),
-    h("div", { class: "split" },
-      h("div", { class: "stack" }, panel(null, h("div", { class: "stack" }, drop, status)), analysisPanel),
+    h("div", { class: "stack", style: { maxWidth: "900px" } }, setupNote,
+      panel(active ? "Upload a new version" : "Upload your resume", uploadBody, { actions: setup ? h("span", { class: "step-meta" }, "Step 2 of 2") : null }),
+      analysisPanel,
       panel("Versions", versions, { flush: true })));
 }
 
@@ -416,7 +433,7 @@ async function jobDetail(ctx) {
   const skillList = (list) => h("div", { class: "chips" }, list.map((s) => h("span", { class: `chip ${s.i_have ? "have" : "missing"}` }, s.i_have ? icon("check") : null, s.skill_name)));
   clear(ctx.el,
     pageHead(job.title, [job.company_name, job.location, job.is_remote ? "Remote" : null, humanize(job.employment_type)].filter(Boolean).join(", "), applyBtn),
-    !ready && !job.my_application ? h("div", { class: "callout", style: { marginBottom: "16px" } }, icon("info"),
+    !ready && !job.my_application ? h("div", { class: "callout info", style: { marginBottom: "16px" } }, icon("info"),
       h("span", {}, "Upload a resume and wait for it to finish processing before applying. ", h("a", { href: "#/resume" }, "Go to resume"))) : null,
     h("div", { class: "split" },
       panel("About the role", h("div", { class: "small", style: { whiteSpace: "pre-wrap", maxWidth: "75ch" } }, job.description)),
@@ -584,6 +601,10 @@ startApp({
   portal: "applicant",
   nav: NAV,
   onboarding,
+  quick: [
+    { label: "Upload a new resume", hash: "#/resume", icon: "upload" },
+    { label: "Recommended jobs", hash: "#/jobs?tab=recommended", icon: "sparkle" },
+  ],
   routes: [
     { path: "", nav: "dashboard", title: "Dashboard", render: dashboard },
     { path: "profile", nav: "profile", title: "Profile", render: profilePage },
@@ -597,3 +618,4 @@ startApp({
     { path: "notifications", nav: "notifications", title: "Notifications", render: notificationsPage },
   ],
 });
+

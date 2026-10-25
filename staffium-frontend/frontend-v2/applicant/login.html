@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <title>Applicant sign in - Staffium.ai</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <script src="/assets/js/theme-init.js"></script>
+  <link rel="stylesheet" href="/assets/css/theme.css">
+  <script type="module" src="/assets/js/auth-page.js"></script>
+</head>
+<body data-portal="applicant">
+  <div class="auth-layout">
+    <div class="auth-left">
+      <header class="public-top">
+        <a class="brand" href="/" aria-label="Staffium.ai home">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="3" rx="1.5"/><rect x="3" y="11" width="12" height="3" rx="1.5"/><rect x="3" y="17" width="6" height="3" rx="1.5"/></svg>
+        <span class="wordmark">Staffium<span class="tld">.ai</span></span>
+      </a>
+        <div class="public-links">
+          <a class="small muted" href="/recruiter/login.html">Hiring? Use the recruiter portal</a>
+          <button class="btn btn-ghost icon-btn" type="button" data-theme-toggle aria-label="Switch theme"></button>
+        </div>
+      </header>
+      <main class="auth-main">
+        <div class="auth-card">
+          <span class="portal-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0"/></svg>Applicant portal</span>
+          <h1 id="auth-title">Sign in</h1>
+          <p class="lede" id="auth-lede">Track your applications, interviews and offers.</p>
+          <div id="auth-root"></div>
+        </div>
+      </main>
+    </div>
+    <aside class="auth-aside" aria-hidden="true">
+      <h2>Know where you stand, at every step.</h2>
+      <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>Matched to your skills</b>Roles are ranked by what your resume actually says.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>One place for everything</b>Applications, interviews and offers in a single view.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span><b>A reason when it's a no</b>Feedback and resources to close the gap.</span></li>
+      </ul>
+    </aside>
+  </div>
+  <noscript><p class="empty">Staffium.ai needs JavaScript to run.</p></noscript>
+</body>
+</html>

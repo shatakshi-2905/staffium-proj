@@ -1,12 +1,14 @@
 // Views used by both portals.
 import { get, post } from "./api.js";
-import { clear, empty, fmtAgo, h, icon, pageHead, panel } from "./ui.js";
+import { clear, empty, errorText, fmtAgo, h, icon, pageHead, panel, toast } from "./ui.js";
 
 export async function notificationsPage(ctx) {
   const data = await get("/api/notifications", { limit: 50 });
   if (!ctx.alive()) return;
   const markAll = h("button", { class: "btn btn-sm", disabled: !data.unread, onclick: async () => {
-    await post("/api/notifications/read-all"); ctx.refreshUnread(); ctx.rerender();
+    try {
+      await post("/api/notifications/read-all"); ctx.refreshUnread(); ctx.rerender();
+    } catch (err) { toast(errorText(err), "error"); }
   } }, icon("check"), "Mark all as read");
   clear(ctx.el, pageHead("Notifications", null, markAll),
     panel(null, data.items.length ? h("div", { class: "list" }, data.items.map((n) => h("div", { class: `list-item ${n.is_read ? "" : "unread"}` },
@@ -16,4 +18,5 @@ export async function notificationsPage(ctx) {
       h("span", { class: "faint xs nowrap" }, fmtAgo(n.created_at)))))
       : empty("You're all caught up", "New activity will appear here."), { flush: true }));
 }
+
 

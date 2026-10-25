@@ -22,7 +22,7 @@ from ..schemas import ForgotPasswordIn, LoginIn, RefreshIn, ResetPasswordIn, Sig
 from ..security import limiter
 
 router = APIRouter(prefix="/api", tags=["auth"])
-log = logging.getLogger("shortlist.auth")
+log = logging.getLogger("staffium.auth")
 _http: httpx.AsyncClient | None = None
 S = get_settings()
 

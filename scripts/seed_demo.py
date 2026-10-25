@@ -13,8 +13,16 @@ Usage (from the repo root):
     python scripts/seed_demo.py
 
 Every demo account uses DEMO_PASSWORD, so you can sign in as any of them during the demo:
-recruiter priya.demo@shortlist.test, applicants <firstname>.demo@shortlist.test.
+recruiter priya.demo@staffium-demo.com, applicants <firstname>.demo@staffium-demo.com.
+
+To seed around your own (already registered and confirmed) accounts instead, also set
+    RECRUITER_EMAIL=you@example.com  RECRUITER_NAME='First Last'
+    APPLICANT_EMAIL=other@example.com APPLICANT_NAME='First Last'
+The script prompts for their passwords (or reads RECRUITER_PASSWORD / APPLICANT_PASSWORD). Your recruiter
+owns the jobs; your applicant gets a profile, a resume and applications that reach interview and offer.
+Re-running is safe: existing jobs, profiles, resumes and applications are reused.
 """
+import getpass
 import os
 import sys
 import time
@@ -27,6 +35,8 @@ API = os.environ["API_BASE"].rstrip("/")
 SUPABASE = os.environ["SUPABASE_URL"].rstrip("/")
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 PASSWORD = os.environ.get("DEMO_PASSWORD", "Demo-Passw0rd!")
+RECRUITER_EMAIL = os.environ.get("RECRUITER_EMAIL")
+APPLICANT_EMAIL = os.environ.get("APPLICANT_EMAIL")
 
 PEOPLE = [
     ("Asha", "Verma", "Backend engineer, payments", "Bengaluru", 30, True,
@@ -83,13 +93,19 @@ def admin_user(c: httpx.Client, email: str, role: str) -> None:
         sys.exit(f"could not create {email}: {r.status_code} {r.text}")
 
 
-def login(c: httpx.Client, email: str, portal: str) -> dict:
-    for attempt in range(3):
-        r = c.post(f"{API}/api/auth/login", json={"email": email, "password": PASSWORD, "portal": portal})
+def own_password(email: str, var: str) -> str:
+    return os.environ.get(var) or getpass.getpass(f"Password for {email}: ")
+
+
+def login(c: httpx.Client, email: str, portal: str, password: str = PASSWORD) -> dict:
+    for attempt in range(8):
+        r = c.post(f"{API}/api/auth/login", json={"email": email, "password": password, "portal": portal})
         if r.status_code == 429:
-            time.sleep(15)   # the API's own login rate limit
+            print("  (login rate limit, waiting 20s)")
+            time.sleep(20)   # the API allows 5 logins a minute; this script needs 8
             continue
-        r.raise_for_status()
+        if r.status_code >= 400:
+            sys.exit(f"login failed for {email}: {r.status_code} {r.text[:200]}")
         return {"Authorization": f"Bearer {r.json()['access_token']}"}
     sys.exit("login rate-limited; wait a minute and re-run")
 
@@ -104,17 +120,26 @@ def call(c, method, path, headers, **kw):
 def main() -> None:
     with httpx.Client(timeout=90) as c:
         print("recruiter + company")
-        admin_user(c, "priya.demo@shortlist.test", "RECRUITER")
-        rec = login(c, "priya.demo@shortlist.test", "recruiter")
-        call(c, "POST", "/api/companies", rec, json={
-            "company_name": "Northwind Labs", "industry": "Fintech", "location": "Bengaluru", "website": "https://northwind.example",
-            "description": "Payments infrastructure for small businesses across India.",
-            "first_name": "Priya", "last_name": "Nair", "designation": "Talent partner"})
+        if RECRUITER_EMAIL:
+            rec = login(c, RECRUITER_EMAIL, "recruiter", own_password(RECRUITER_EMAIL, "RECRUITER_PASSWORD"))
+            first, _, last = os.environ.get("RECRUITER_NAME", "Shatakshi Pandey").partition(" ")
+        else:
+            admin_user(c, "priya.demo@staffium-demo.com", "RECRUITER")
+            rec = login(c, "priya.demo@staffium-demo.com", "recruiter")
+            first, last = "Priya", "Nair"
+        if c.get(f"{API}/api/company", headers=rec).status_code != 200:
+            call(c, "POST", "/api/companies", rec, json={
+                "company_name": "Northwind Labs", "industry": "Fintech", "location": "Bengaluru", "website": "https://northwind.example",
+                "description": "Payments infrastructure for small businesses across India.",
+                "first_name": first, "last_name": last or first, "designation": "Talent partner"})
         skills = {s["skill_name"]: s["skill_id"] for s in call(c, "GET", "/api/skills", rec).json()["items"]}
 
         print("jobs")
-        jobs = {}
+        existing = call(c, "GET", "/api/recruiter/jobs", rec, params={"status": "OPEN", "limit": 50}).json().get("items", [])
+        jobs = {j["title"]: j["job_id"] for j in existing if j.get("status") == "OPEN"}
         for title, dept, min_exp, status, req, pref, desc in JOBS:
+            if title in jobs:
+                continue
             body = {"title": title, "department": dept, "description": desc, "location": "Bengaluru", "min_experience": min_exp,
                     "min_salary": 1800000, "max_salary": 3200000, "status": status,
                     "skills": [{"skill_id": skills[s]} for s in req] + [{"skill_id": skills[s], "is_required": False} for s in pref]}
@@ -123,7 +148,7 @@ def main() -> None:
         print("applicants + resumes")
         heads = {}
         for first, last, headline, city, notice, discoverable, exp, skill_line, edu in PEOPLE:
-            email = f"{first.lower()}.demo@shortlist.test"
+            email = f"{first.lower()}.demo@staffium-demo.com"
             admin_user(c, email, "APPLICANT")
             h = heads[first] = login(c, email, "applicant")
             call(c, "POST", "/api/applicant/profile", h, json={
@@ -131,6 +156,41 @@ def main() -> None:
                 "is_discoverable": discoverable, "linkedin_url": f"https://www.linkedin.com/in/{first.lower()}-{last.lower()}-demo"})
             text = f"{first} {last}\n{headline} | {city}\n{email}\n\nExperience\n{exp}\n\nSkills: {skill_line}\n\nEducation: {edu}\n"
             call(c, "POST", "/api/resumes", h, files={"file": (f"{first}_{last}_CV.pdf", pdf(text), "application/pdf")})
+
+        if APPLICANT_EMAIL:
+            print("your applicant account")
+            me = heads["You"] = login(c, APPLICANT_EMAIL, "applicant", own_password(APPLICANT_EMAIL, "APPLICANT_PASSWORD"))
+            first, _, last = os.environ.get("APPLICANT_NAME", "Aman Trivedi").partition(" ")
+            last = last or first
+            r = call(c, "POST", "/api/applicant/profile", me, json={
+                "first_name": first, "last_name": last, "headline": "Full-stack engineer, Python and React", "location": "Noida",
+                "phone": "+919876543210", "notice_period_days": 30, "is_discoverable": True,
+                "github_url": f"https://github.com/{first.lower()}{last.lower()}-demo"})
+            if r.status_code == 201:
+                call(c, "POST", "/api/applicant/education", me, json={
+                    "institution": "AKTU Lucknow", "degree": "B.Tech", "field_of_study": "Computer Science",
+                    "start_year": 2021, "end_year": 2025, "cgpa": "8.40"})
+                call(c, "POST", "/api/applicant/experience", me, json={
+                    "company_name": "Ledgerly", "designation": "Software Engineer", "start_date": "2025-07-01", "is_current": True,
+                    "description": "FastAPI services on AWS with PostgreSQL; React and TypeScript dashboards."})
+                call(c, "POST", "/api/applicant/experience", me, json={
+                    "company_name": "CodeNest", "designation": "Software Engineering Intern", "start_date": "2024-06-01",
+                    "end_date": "2024-12-31", "description": "Built REST APIs in Python and Docker-based CI."})
+                call(c, "POST", "/api/applicant/projects", me, json={
+                    "title": "Expense splitter", "description": "React + FastAPI app for splitting group expenses.",
+                    "technologies": ["React", "TypeScript", "FastAPI", "PostgreSQL"]})
+                call(c, "POST", "/api/applicant/certifications", me, json={
+                    "name": "AWS Certified Cloud Practitioner", "issuer": "Amazon Web Services", "issue_date": "2025-03-15"})
+            if not call(c, "GET", "/api/resumes", me).json().get("items"):
+                text = (f"{first} {last}\nFull-stack engineer, Python and React | Noida\n\nExperience\n"
+                        "Software Engineer, Ledgerly (2025-07 to Present): FastAPI microservices on AWS, PostgreSQL, Docker, "
+                        "React and TypeScript dashboards, REST APIs.\n"
+                        "Software Engineering Intern, CodeNest (2024-06 to 2024-12): Python REST APIs, Docker, GitHub Actions CI.\n\n"
+                        "Projects\nExpense splitter: React, TypeScript, FastAPI, PostgreSQL.\n\n"
+                        "Skills: Python, FastAPI, PostgreSQL, AWS, Docker, React, TypeScript, JavaScript, CSS, SQL, Git, Jest\n\n"
+                        "Education: B.Tech Computer Science, AKTU Lucknow, 2021-2025\n"
+                        "Certifications: AWS Certified Cloud Practitioner (2025)\n")
+                call(c, "POST", "/api/resumes", me, files={"file": (f"{first}_{last}_CV.pdf", pdf(text), "application/pdf")})
 
         print("waiting for resume processing")
         for first, h in heads.items():
@@ -143,9 +203,16 @@ def main() -> None:
         print("applications")
         plan = {"Asha": ["Senior Backend Engineer"], "Karan": ["Senior Backend Engineer"], "Sana": ["Senior Backend Engineer"],
                 "Vikram": ["Senior Backend Engineer"], "Rohan": ["Frontend Engineer", "Senior Backend Engineer"], "Meera": ["Data Scientist, Risk"]}
+        if APPLICANT_EMAIL:
+            plan["You"] = ["Senior Backend Engineer", "Frontend Engineer", "Data Scientist, Risk"]
+        mine = {a["job_id"]: a["application_id"] for a in call(c, "GET", "/api/applications", heads["You"], params={"limit": 50}).json().get("items", [])} \
+            if APPLICANT_EMAIL else {}
         apps = {}
         for first, titles in plan.items():
             for t in titles:
+                if first == "You" and jobs[t] in mine:
+                    apps[(first, t)] = mine[jobs[t]]
+                    continue
                 r = call(c, "POST", f"/api/jobs/{jobs[t]}/apply", heads[first])
                 if r.status_code == 201:
                     apps[(first, t)] = r.json()["application_id"]
@@ -159,7 +226,8 @@ def main() -> None:
         be = "Senior Backend Engineer"
         for first, status in (("Asha", "SHORTLISTED"), ("Karan", "SHORTLISTED"), ("Rohan", "REJECTED"), ("Meera", "SHORTLISTED")):
             key = (first, be if first != "Meera" else "Data Scientist, Risk")
-            call(c, "PATCH", f"/api/recruiter/applications/{apps[key]}/status", rec, json={"status": status})
+            if key in apps:
+                call(c, "PATCH", f"/api/recruiter/applications/{apps[key]}/status", rec, json={"status": status})
 
         print("interviews + offer")
         tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).replace(hour=5, minute=30, second=0, microsecond=0)
@@ -169,7 +237,19 @@ def main() -> None:
              "scheduled_at": (tomorrow + timedelta(days=2)).isoformat(), "duration_minutes": 45, "interview_type": "VIDEO"})
         call(c, "POST", "/api/recruiter/offers", rec, json={"application_id": apps[("Karan", be)], "salary": 2850000,
              "joining_date": str(date.today() + timedelta(days=30)), "expires_in_days": 7})
-        print("done. Sign in as priya.demo@shortlist.test (recruiter) or asha.demo@shortlist.test (applicant).")
+        if ("You", be) in apps:
+            print("your applicant: shortlist, interview, offer")
+            fe = "Frontend Engineer"
+            for t in (be, fe):
+                call(c, "PATCH", f"/api/recruiter/applications/{apps[('You', t)]}/status", rec, json={"status": "SHORTLISTED"})
+            call(c, "POST", "/api/recruiter/interviews", rec, json={"application_id": apps[("You", be)],
+                 "scheduled_at": (tomorrow + timedelta(days=1)).isoformat(), "duration_minutes": 60, "interview_type": "TECHNICAL",
+                 "meeting_link": "https://meet.google.com/xyz-abcd-efg", "notes": "System design round: payments ledger."})
+            call(c, "POST", "/api/recruiter/offers", rec, json={"application_id": apps[("You", fe)], "salary": 2200000,
+                 "joining_date": str(date.today() + timedelta(days=45)), "expires_in_days": 10,
+                 "notes": "Includes a joining bonus of INR 1,00,000."})
+        print(f"done. Sign in as {RECRUITER_EMAIL or 'priya.demo@staffium-demo.com'} (recruiter) "
+              f"or {APPLICANT_EMAIL or 'asha.demo@staffium-demo.com'} (applicant).")
 
 
 if __name__ == "__main__":

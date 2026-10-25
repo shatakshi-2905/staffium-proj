@@ -9,15 +9,16 @@ import {
 import { notificationsPage } from "./views-common.js";
 
 const NAV = [
+  { group: "Hiring" },
   { key: "dashboard", path: "", label: "Dashboard", icon: "chart" },
   { key: "jobs", path: "jobs", label: "Jobs", icon: "briefcase" },
-  { key: "search", path: "search", label: "Talent search", icon: "search" },
+  { key: "search", path: "search", label: "Talent search", icon: "search",
+    children: [{ key: "history", path: "history", label: "Search history", icon: "history" }] },
   { key: "interviews", path: "interviews", label: "Interviews", icon: "calendar" },
   { key: "offers", path: "offers", label: "Offers", icon: "file" },
   { key: "reviews", path: "reviews", label: "Review requests", icon: "compare",
     count: async () => (await get("/api/recruiter/reviews", { limit: 1 })).open },
   { group: "Workspace" },
-  { key: "history", path: "history", label: "Search history", icon: "history" },
   { key: "notifications", path: "notifications", label: "Notifications", icon: "bell" },
   { key: "team", path: "team", label: "Company and team", icon: "building" },
 ];
@@ -30,35 +31,35 @@ const team = async () => (teamCache ??= await get("/api/company"));
 // =============================================================================================
 // Onboarding: create a company or join one with an invite code
 // =============================================================================================
-function onboarding(el, me) {
+function onboarding(el, me, { done }) {
   const names = () => h("div", { class: "form-row" },
     field("First name", input("first_name", { required: true, maxlength: 100, autocomplete: "given-name" })),
     field("Last name", input("last_name", { required: true, maxlength: 100, autocomplete: "family-name" })),
     field("Your role", input("designation", { maxlength: 100, placeholder: "Talent partner" })));
 
-  const create = h("form", { class: "form", novalidate: true },
+  const create = h("form", { class: "form", id: "create-company-form", novalidate: true },
     names(),
     field("Company name", input("company_name", { required: true, maxlength: 200 })),
     h("div", { class: "form-row" }, field("Industry", input("industry", { maxlength: 100 })), field("City", input("location", { maxlength: 150 }))),
-    field("Website", input("website", { type: "url", maxlength: 500, placeholder: "https://" })),
-    h("div", { class: "form-actions" }, h("button", { class: "btn btn-primary", type: "submit" }, "Create company")));
-  const join = h("form", { class: "form", novalidate: true },
+    field("Website", input("website", { type: "url", maxlength: 500, placeholder: "https://" })));
+  const join = h("form", { class: "form", id: "join-company-form", novalidate: true },
     names(),
     field("Invite code", input("invite_code", { required: true, maxlength: 32, class: "mono", autocomplete: "off", spellcheck: "false" }),
-      { hint: "Ask an admin at your company. They'll find it under Company and team." }),
-    h("div", { class: "form-actions" }, h("button", { class: "btn btn-primary", type: "submit" }, "Join company")));
+      { hint: "Ask an admin at your company. They'll find it under Company and team." }));
 
   for (const [form, url] of [[create, "/api/companies"], [join, "/api/companies/join"]]) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       showFormError(form, null);
-      await busy(form.querySelector("[type=submit]"), async () => {
-        try { await post(url, readForm(form)); window.location.hash = "#/"; window.location.reload(); } catch (err) { showFormError(form, err); }
+      await busy(e.submitter, async () => {
+        try { await post(url, readForm(form)); done("#/"); } catch (err) { showFormError(form, err); }
       });
     });
   }
   clear(el, pageHead("Set up your workspace", `Signed in as ${me.email}. Start a new company, or join your team's.`),
-    h("div", { class: "grid-2" }, panel("Start a new company", create), panel("Join with an invite code", join)));
+    h("div", { class: "grid-2" },
+      panel("Start a new company", create, { footer: h("button", { class: "btn btn-primary", type: "submit", form: "create-company-form" }, "Create company") }),
+      panel("Join with an invite code", join, { footer: h("button", { class: "btn btn-primary", type: "submit", form: "join-company-form" }, "Join company") })));
 }
 
 // =============================================================================================
@@ -159,7 +160,7 @@ async function jobForm(ctx) {
     skillSelect.value = "";
   });
 
-  const form = h("form", { class: "form", novalidate: true },
+  const form = h("form", { class: "form", id: "job-form", novalidate: true },
     h("div", { class: "form-row" }, field("Job title", input("title", { value: j.title || "", required: true, maxlength: 200 })),
       field("Department", input("department", { value: j.department || "", maxlength: 100 }))),
     h("div", { class: "form-row" }, field("Location", input("location", { value: j.location || "", maxlength: 150 })),
@@ -174,11 +175,12 @@ async function jobForm(ctx) {
     field("Description", textarea("description", { value: j.description || "", class: "tall", required: true, minlength: 30, maxlength: 20000 }),
       { hint: "Responsibilities, what success looks like, the team. This text is what candidates are matched against." }),
     h("div", { class: "field" }, h("span", { class: "label" }, "Skills"),
-      h("div", { class: "row" }, h("div", { class: "grow" }, skillSelect), h("label", { class: "check" }, reqBox, "Required")), skillBox),
-    h("div", { class: "form-actions" },
-      h("a", { class: "btn", href: editing ? `#/jobs/${j.job_id}` : "#/jobs" }, "Cancel"),
-      editing ? null : h("button", { class: "btn", type: "submit", value: "DRAFT" }, "Save as draft"),
-      h("button", { class: "btn btn-primary", type: "submit", value: editing ? "" : "OPEN" }, editing ? "Save changes" : "Publish job")));
+      h("div", { class: "row" }, h("div", { class: "grow" }, skillSelect), h("label", { class: "check" }, reqBox, "Required")), skillBox));
+  const jobFooter = [
+    h("a", { class: "btn", href: editing ? `#/jobs/${j.job_id}` : "#/jobs" }, "Cancel"),
+    editing ? null : h("button", { class: "btn", type: "submit", form: "job-form", value: "DRAFT" }, "Save as draft"),
+    h("button", { class: "btn btn-primary", type: "submit", form: "job-form", value: editing ? "" : "OPEN" }, editing ? "Save changes" : "Publish job"),
+  ];
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -194,7 +196,7 @@ async function jobForm(ctx) {
     });
   });
   clear(ctx.el, pageHead(editing ? "Edit job" : "New job", editing ? null : "Publish now, or save a draft and open it later."),
-    h("div", { style: { maxWidth: "860px" } }, panel(null, form)));
+    h("div", { style: { maxWidth: "860px" } }, panel(editing ? "Edit job details" : "Job details", form, { footer: jobFooter })));
 }
 
 // ---------------------------------------------------------------------------------- job pipeline
@@ -246,7 +248,7 @@ async function jobDetail(ctx) {
     const data = await get(`/api/recruiter/jobs/${id}/applications`, { status, limit: 25, offset });
     if (!ctx.alive()) return;
     clear(body, panel(null, h("div", {}, table([
-      { label: "", render: (r) => h("input", { type: "checkbox", "aria-label": `Select ${r.candidate_name}`, checked: selected.has(r.application_id), disabled: r.overall_score === null, onchange: (e) => {
+      { label: "", mobile: "select", render: (r) => h("input", { type: "checkbox", "aria-label": `Select ${r.candidate_name}`, checked: selected.has(r.application_id), disabled: r.overall_score === null, onchange: (e) => {
           if (e.target.checked) { if (selected.size >= 3) { e.target.checked = false; toast("Compare up to 3 candidates", "error"); return; } selected.set(r.application_id, r); }
           else selected.delete(r.application_id);
           compareBtn.disabled = selected.size < 2;
@@ -524,7 +526,7 @@ async function searchPage(ctx) {
 
   clear(ctx.el,
     pageHead("Talent search", "Find people who haven't applied yet. Candidates are retrieved by meaning, not just keywords."),
-    h("div", { class: "split", style: { gridTemplateColumns: "360px minmax(0, 1fr)" } }, panel(null, form), results));
+    h("div", { class: "split split-search" }, panel("Search criteria", form), results));
   if (ctx.query.get("job")) fillFromJob();
 }
 
@@ -706,7 +708,7 @@ async function reviewDetail(ctx) {
 
   const scr = s ? panel("Current screening", h("div", { class: "stack" },
     h("div", { class: "row-between" }, score(s.effective_score, { large: true }), badge(s.recommendation)),
-    s.human_score !== null ? h("p", { class: "small muted" }, `Includes a human adjustment (AI score ${Math.round(s.ai_score)}).`) : null,
+    s.human_score != null ? h("p", { class: "small muted" }, `Includes a human adjustment (AI score ${Math.round(s.ai_score)}).`) : null,
     breakdown([["Skills", s.skill_score], ["Experience fit", s.experience_score], ["Semantic", s.semantic_score]]),
     s.missing_skills?.length ? h("div", { class: "stack-sm" }, h("span", { class: "label" }, "Missing skills"), chips(s.missing_skills, "missing")) : null,
     s.ai_explanation ? h("p", { class: "quote" }, s.ai_explanation) : null,
@@ -772,13 +774,13 @@ async function teamPage(ctx) {
   const t = await team();
   if (!ctx.alive()) return;
   const c = t.company, admin = t.me.is_company_admin;
-  const form = h("form", { class: "form", novalidate: true },
+  const form = h("form", { class: "form", id: "company-form", novalidate: true },
     field("Company name", input("company_name", { value: c.company_name, maxlength: 200, disabled: !admin })),
     h("div", { class: "form-row" }, field("Industry", input("industry", { value: c.industry || "", maxlength: 100, disabled: !admin })),
       field("City", input("location", { value: c.location || "", maxlength: 150, disabled: !admin }))),
     field("Website", input("website", { value: c.website || "", type: "url", maxlength: 500, disabled: !admin })),
     field("About", textarea("description", { value: c.description || "", maxlength: 4000, disabled: !admin }), { hint: "Shown to candidates on your job pages." }),
-    admin ? h("div", { class: "form-actions" }, h("button", { class: "btn btn-primary", type: "submit" }, "Save changes")) : h("p", { class: "faint xs" }, "Only company admins can edit these details."));
+    admin ? null : h("p", { class: "faint xs" }, "Only company admins can edit these details."));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     showFormError(form, null);
@@ -798,7 +800,7 @@ async function teamPage(ctx) {
 
   clear(ctx.el, pageHead("Company and team", null),
     h("div", { class: "split" },
-      h("div", { class: "stack" }, panel("Company details", form),
+      h("div", { class: "stack" }, panel("Company details", form, { footer: admin ? h("button", { class: "btn btn-primary", type: "submit", form: "company-form" }, "Save changes") : null }),
         panel("Team", table([
           { label: "Name", render: (m) => h("div", {}, h("div", { class: "title-cell" }, `${m.first_name} ${m.last_name}`), h("div", { class: "sub" }, m.designation || "")) },
           { label: "Email", render: (m) => m.email },
@@ -812,6 +814,9 @@ startApp({
   portal: "recruiter",
   nav: NAV,
   onboarding,
+  quick: [
+    { label: "Post a new job", hash: "#/jobs/new", icon: "plus" },
+  ],
   routes: [
     { path: "", nav: "dashboard", title: "Dashboard", render: dashboard },
     { path: "jobs", nav: "jobs", title: "Jobs", render: jobsPage },
@@ -830,3 +835,4 @@ startApp({
     { path: "team", nav: "team", title: "Company and team", render: teamPage },
   ],
 });
+

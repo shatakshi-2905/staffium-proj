@@ -1,17 +1,24 @@
-# Render Blueprint: two services from one repo. Dashboard -> New -> Blueprint -> pick this repo.
-# Secrets are declared with `sync: false`: Render asks for their values on first deploy and never
-# stores them in git. After deploy, put the API URL into frontend/assets/js/config.js and into the
-# connect-src of the Content-Security-Policy below, and the frontend URL into FRONTEND_ORIGIN.
+
+# Render Blueprint: two services from one repository.
+# Dashboard -> New -> Blueprint -> select this repository.
+#
+# After deployment:
+# 1. Set the API URL in staffium-frontend/frontend-v2/assets/js/config.js.
+# 2. Update the CSP connect-src directive if your API URL differs.
+# 3. Set FRONTEND_ORIGIN to your deployed frontend URL.
+# 4. Configure all secrets in the Render dashboard, not in Git.
+
 services:
+  # FastAPI backend
   - type: web
-    name: shortlist-api
+    name: staffium-api
     runtime: python
     rootDir: backend
     plan: free
     buildCommand: >-
       pip install -r requirements.txt &&
       python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='./.models')"
-    # One worker: the in-memory rate limiter and the background worker live in this process.
+    # One worker: the in-memory rate limiter and background worker live in this process.
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*" --workers 1
     healthCheckPath: /api/health
     envVars:
@@ -48,16 +55,17 @@ services:
       - key: SES_FROM_EMAIL
         sync: false
 
+  # Static frontend
   - type: web
-    name: shortlist-web
+    name: staffium-web
     runtime: static
-    rootDir: frontend
+    rootDir: staffium-frontend/frontend-v2
     buildCommand: ""
     staticPublishPath: .
     headers:
       - path: /*
         name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://shortlist-api.onrender.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+        value: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://staffium-api.onrender.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
       - path: /*
         name: X-Content-Type-Options
         value: nosniff

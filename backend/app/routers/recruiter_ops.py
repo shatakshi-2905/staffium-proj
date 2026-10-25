@@ -124,60 +124,208 @@ async def withdraw_offer(offer_id: int, user: CurrentUser = Depends(require_recr
 # Analytics
 # ---------------------------------------------------------------------------------------------------
 @router.get("/analytics")
-async def analytics(days: int = Query(30, ge=7, le=180), user: CurrentUser = Depends(require_recruiter)):
+async def analytics(
+    days: int = Query(30, ge=7, le=180),
+    user: CurrentUser = Depends(require_recruiter),
+):
     async with user_tx(user.user_id) as conn:
+
+        # KPI statistics
         kpis = await conn.fetchrow(
-            """SELECT
-                   (SELECT count(*) FROM job_postings WHERE company_id = $1 AND status = 'OPEN' AND deleted_at IS NULL) AS active_jobs,
-                   count(DISTINCT a.applicant_id) AS candidates,
-                   count(a.application_id) AS applications,
-                   count(a.application_id) FILTER (WHERE a.status = 'SHORTLISTED') AS shortlisted,
-                   (SELECT count(*) FROM interviews i WHERE i.status = 'SCHEDULED' AND i.scheduled_at > now()
-                        AND app.application_company(i.application_id) = $1) AS upcoming_interviews,
-                   (SELECT count(*) FROM offers o WHERE o.offer_status = 'PENDING'
-                        AND app.application_company(o.application_id) = $1) AS pending_offers,
-                   count(a.application_id) FILTER (WHERE a.status = 'HIRED') AS hires
-               FROM applications a JOIN job_postings j ON j.job_id = a.job_id
-               WHERE j.company_id = $1""", user.company_id)
+            """
+            SELECT
+                (
+                    SELECT count(*)
+                    FROM job_postings
+                    WHERE company_id = $1
+                      AND status = 'OPEN'
+                      AND deleted_at IS NULL
+                ) AS active_jobs,
 
-        # Funnel: how many applications ever reached each stage (a hired candidate passed every stage).
+                count(DISTINCT a.applicant_id) AS candidates,
+
+                count(a.application_id) AS applications,
+
+                -- Count applications that have reached the shortlisted stage.
+                count(a.application_id) FILTER (
+                    WHERE a.status IN ('SHORTLISTED', 'INTERVIEW', 'OFFER', 'HIRED')
+                       OR EXISTS (
+                           SELECT 1
+                           FROM interviews i
+                           WHERE i.application_id = a.application_id
+                       )
+                ) AS shortlisted,
+
+                (
+                    SELECT count(*)
+                    FROM interviews i
+                    WHERE i.status = 'SCHEDULED'
+                      AND i.scheduled_at > now()
+                      AND app.application_company(i.application_id) = $1
+                ) AS upcoming_interviews,
+
+                (
+                    SELECT count(*)
+                    FROM offers o
+                    WHERE o.offer_status = 'PENDING'
+                      AND app.application_company(o.application_id) = $1
+                ) AS pending_offers,
+
+                count(a.application_id) FILTER (
+                    WHERE a.status = 'HIRED'
+                ) AS hires
+
+            FROM applications a
+            JOIN job_postings j ON j.job_id = a.job_id
+            WHERE j.company_id = $1
+            """,
+            user.company_id,
+        )
+
+        # Hiring funnel: count applications that have reached each stage.
+        # Later stages are included in earlier stages where appropriate.
         funnel = await conn.fetchrow(
-            """SELECT count(*) AS applied,
-                      count(*) FILTER (WHERE a.status IN ('SCREENING','SHORTLISTED','INTERVIEW','OFFER','HIRED')
-                                          OR EXISTS (SELECT 1 FROM screening_results sr WHERE sr.application_id = a.application_id)) AS screened,
-                      count(*) FILTER (WHERE a.status IN ('SHORTLISTED','INTERVIEW','OFFER','HIRED')
-                                          OR EXISTS (SELECT 1 FROM interviews i WHERE i.application_id = a.application_id)) AS shortlisted,
-                      count(*) FILTER (WHERE a.status IN ('INTERVIEW','OFFER','HIRED')
-                                          OR EXISTS (SELECT 1 FROM interviews i WHERE i.application_id = a.application_id)) AS interviewed,
-                      count(*) FILTER (WHERE EXISTS (SELECT 1 FROM offers o WHERE o.application_id = a.application_id)) AS offered,
-                      count(*) FILTER (WHERE a.status = 'HIRED') AS hired
-               FROM applications a JOIN job_postings j ON j.job_id = a.job_id WHERE j.company_id = $1""", user.company_id)
+            """
+            SELECT
+                count(*) AS applied,
 
+                count(*) FILTER (
+                    WHERE a.status IN (
+                        'SCREENING', 'SHORTLISTED', 'INTERVIEW', 'OFFER', 'HIRED'
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM screening_results sr
+                        WHERE sr.application_id = a.application_id
+                    )
+                ) AS screened,
+
+                count(*) FILTER (
+                    WHERE a.status IN ('SHORTLISTED', 'INTERVIEW', 'OFFER', 'HIRED')
+                    OR EXISTS (
+                        SELECT 1
+                        FROM interviews i
+                        WHERE i.application_id = a.application_id
+                    )
+                ) AS shortlisted,
+
+                count(*) FILTER (
+                    WHERE a.status IN ('INTERVIEW', 'OFFER', 'HIRED')
+                    OR EXISTS (
+                        SELECT 1
+                        FROM interviews i
+                        WHERE i.application_id = a.application_id
+                    )
+                ) AS interviewed,
+
+                count(*) FILTER (
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM offers o
+                        WHERE o.application_id = a.application_id
+                    )
+                ) AS offered,
+
+                count(*) FILTER (
+                    WHERE a.status = 'HIRED'
+                ) AS hired
+
+            FROM applications a
+            JOIN job_postings j ON j.job_id = a.job_id
+            WHERE j.company_id = $1
+            """,
+            user.company_id,
+        )
+
+        # Applications received over the selected time period.
         timeline = await conn.fetch(
-            """SELECT d::date AS day, count(a.application_id) AS applications
-               FROM generate_series(current_date - ($2::int - 1), current_date, interval '1 day') AS d
-               LEFT JOIN applications a ON a.applied_at::date = d::date
-                    AND a.job_id IN (SELECT job_id FROM job_postings WHERE company_id = $1)
-               GROUP BY d ORDER BY d""", user.company_id, days)
+            """
+            SELECT
+                d::date AS day,
+                count(a.application_id) AS applications
 
+            FROM generate_series(
+                current_date - ($2::int - 1),
+                current_date,
+                interval '1 day'
+            ) AS d
+
+            LEFT JOIN applications a
+                ON a.applied_at::date = d::date
+                AND a.job_id IN (
+                    SELECT job_id
+                    FROM job_postings
+                    WHERE company_id = $1
+                )
+
+            GROUP BY d
+            ORDER BY d
+            """,
+            user.company_id,
+            days,
+        )
+
+        # Average match score by job.
         by_job = await conn.fetch(
-            """SELECT j.job_id, j.title, count(sr.screening_id) AS screened, round(avg(sr.effective_score), 1) AS avg_score,
-                      max(sr.effective_score) AS best_score
-               FROM job_postings j
-               JOIN applications a ON a.job_id = j.job_id
-               JOIN screening_results sr ON sr.application_id = a.application_id
-               WHERE j.company_id = $1 AND j.deleted_at IS NULL
-               GROUP BY j.job_id ORDER BY avg_score DESC NULLS LAST LIMIT 8""", user.company_id)
+            """
+            SELECT
+                j.job_id,
+                j.title,
+                count(sr.screening_id) AS screened,
+                round(avg(sr.effective_score), 1) AS avg_score,
+                max(sr.effective_score) AS best_score
 
+            FROM job_postings j
+            JOIN applications a
+                ON a.job_id = j.job_id
+            JOIN screening_results sr
+                ON sr.application_id = a.application_id
+
+            WHERE j.company_id = $1
+              AND j.deleted_at IS NULL
+
+            GROUP BY j.job_id
+            ORDER BY avg_score DESC NULLS LAST
+            LIMIT 8
+            """,
+            user.company_id,
+        )
+
+        # Most common skills among applicants.
         top_skills = await conn.fetch(
-            """SELECT s.skill_name, count(DISTINCT cs.applicant_id) AS candidates
-               FROM applications a
-               JOIN job_postings j     ON j.job_id = a.job_id
-               JOIN candidate_skills cs ON cs.applicant_id = a.applicant_id
-               JOIN skills s           ON s.skill_id = cs.skill_id
-               WHERE j.company_id = $1
-               GROUP BY s.skill_name ORDER BY candidates DESC, s.skill_name LIMIT 10""", user.company_id)
+            """
+            SELECT
+                s.skill_name,
+                count(DISTINCT cs.applicant_id) AS candidates
 
-        mine = await conn.fetchrow("SELECT * FROM get_recruiter_statistics($1)", user.recruiter_id)
-    return {"kpis": dict(kpis), "funnel": dict(funnel), "timeline": [dict(r) for r in timeline],
-            "by_job": [dict(r) for r in by_job], "top_skills": [dict(r) for r in top_skills], "mine": dict(mine)}
+            FROM applications a
+            JOIN job_postings j
+                ON j.job_id = a.job_id
+            JOIN candidate_skills cs
+                ON cs.applicant_id = a.applicant_id
+            JOIN skills s
+                ON s.skill_id = cs.skill_id
+
+            WHERE j.company_id = $1
+
+            GROUP BY s.skill_name
+            ORDER BY candidates DESC, s.skill_name
+            LIMIT 10
+            """,
+            user.company_id,
+        )
+
+        # Recruiter-specific statistics.
+        mine = await conn.fetchrow(
+            "SELECT * FROM get_recruiter_statistics($1)",
+            user.recruiter_id,
+        )
+
+    return {
+        "kpis": dict(kpis),
+        "funnel": dict(funnel),
+        "timeline": [dict(r) for r in timeline],
+        "by_job": [dict(r) for r in by_job],
+        "top_skills": [dict(r) for r in top_skills],
+        "mine": dict(mine),
+    }

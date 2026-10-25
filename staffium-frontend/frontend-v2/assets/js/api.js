@@ -2,7 +2,7 @@
 // error response into an ApiError with a message that is safe to show.
 import { API_BASE } from "./config.js";
 
-const KEY = "shortlist.session";
+const KEY = "staffium.session";
 
 export class ApiError extends Error {
   constructor(status, code, message, fields = []) {
@@ -68,12 +68,16 @@ export async function api(method, path, opts = {}) {
     try { s = await refresh(); } catch { /* fall through; the request will 401 */ }
   }
   try {
-    return await raw(method, path, { ...opts, token: s?.access_token });
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 401 && e.code === "token_expired" && s?.refresh_token) {
-      const next = await refresh();
-      return raw(method, path, { ...opts, token: next.access_token });
+    try {
+      return await raw(method, path, { ...opts, token: s?.access_token });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401 && e.code === "token_expired" && s?.refresh_token) {
+        const next = await refresh();   // a dead refresh token throws a 401 handled below
+        return await raw(method, path, { ...opts, token: next.access_token });
+      }
+      throw e;
     }
+  } catch (e) {
     if (e instanceof ApiError && e.status === 401) {
       session.clear();
       const portal = window.location.pathname.includes("/recruiter/") ? "recruiter" : "applicant";
@@ -98,3 +102,4 @@ export async function signOut() {
     try { await raw("POST", "/api/auth/logout", { token: s.access_token }); } catch { /* already signed out */ }
   }
 }
+

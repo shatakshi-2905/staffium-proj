@@ -150,15 +150,15 @@ portal mismatch, rate limits, upload attacks, headers/CORS and LLM output valida
 ## 5. Deploy on Render
 
 1. Push to GitHub. In Render: **New → Blueprint**, pick the repo; `render.yaml` creates
-   `shortlist-api` and `shortlist-web`.
+   `staffium-api` and `staffium-web`.
 2. Fill in the secret env vars when prompted (`DATABASE_URL`, `SUPABASE_*`, `AWS_*`,
-   `S3_BUCKET_NAME`, `FRONTEND_ORIGIN` = the `shortlist-web` URL).
-3. If your API URL differs from `https://shortlist-api.onrender.com`, change it in
+   `S3_BUCKET_NAME`, `FRONTEND_ORIGIN` = the `staffium-web` URL).
+3. If your API URL differs from `https://staffium-api.onrender.com`, change it in
    `frontend/assets/js/config.js` **and** in the CSP `connect-src` in `render.yaml` (and `_headers`).
-4. In Supabase, set the Site URL / Redirect URLs to the `shortlist-web` URL.
+4. In Supabase, set the Site URL / Redirect URLs to the `staffium-web` URL.
 5. Load demo data for the presentation:
    ```bash
-   API_BASE=https://shortlist-api.onrender.com SUPABASE_URL=https://<ref>.supabase.co \
+   API_BASE=https://staffium-api.onrender.com SUPABASE_URL=https://<ref>.supabase.co \
    SUPABASE_SERVICE_ROLE_KEY=... DEMO_PASSWORD='Demo-Passw0rd!' python scripts/seed_demo.py
    ```
    The service-role key is only used here, on your machine. Never put it on Render or in git.

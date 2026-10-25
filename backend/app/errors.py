@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-log = logging.getLogger("shortlist")
+log = logging.getLogger("staffium")
 
 
 class AppError(Exception):

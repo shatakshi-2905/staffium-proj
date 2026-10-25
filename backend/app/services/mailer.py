@@ -45,11 +45,11 @@ def _ics(row: dict, cancelled: bool) -> bytes:
     s = get_settings()
     p = row["payload"]
     cal = Calendar()
-    cal.add("prodid", "-//Shortlist//Interviews//EN")
+    cal.add("prodid", "-//Staffium//Interviews//EN")
     cal.add("version", "2.0")
     cal.add("method", "CANCEL" if cancelled else "REQUEST")
     ev = Event()
-    ev.add("uid", f"interview-{row['interview_id']}@shortlist")
+    ev.add("uid", f"interview-{row['interview_id']}@staffium")
     ev.add("sequence", int(p.get("sequence", 0)))
     ev.add("dtstamp", datetime.now().astimezone())
     ev.add("dtstart", _parse_ts(p["scheduled_at"]))
@@ -60,7 +60,7 @@ def _ics(row: dict, cancelled: bool) -> bytes:
         ev.add("location", p["meeting_link"])
     ev.add("status", "CANCELLED" if cancelled else "CONFIRMED")
     organizer = vCalAddress(f"mailto:{s.ses_from_email}")
-    organizer.params["cn"] = vText(p.get("company_name") or "Shortlist")
+    organizer.params["cn"] = vText(p.get("company_name") or "Staffium")
     ev["organizer"] = organizer
     attendee = vCalAddress(f"mailto:{row['recipient_email']}")
     attendee.params["cn"] = vText(p.get("applicant_name") or "")
@@ -116,15 +116,15 @@ def build_message(row: dict) -> MIMEMultipart:
         raise ValueError(f"unknown event {event}")
 
     greeting = f"Hi {name}," if name else "Hi,"
-    text = f"{greeting}\n\n{body}\n\n- {company or 'Shortlist'}"
+    text = f"{greeting}\n\n{body}\n\n- {company or 'Staffium'}"
     markup = (f'<div style="font-family:-apple-system,Segoe UI,sans-serif;font-size:14px;line-height:1.6;color:#1c1c1c">'
-              f"<p>{e(greeting)}</p><p>{e(body)}</p><p style=\"color:#666\">- {e(company or 'Shortlist')}</p></div>")
+              f"<p>{e(greeting)}</p><p>{e(body)}</p><p style=\"color:#666\">- {e(company or 'Staffium')}</p></div>")
 
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
-    msg["From"] = formataddr(("Shortlist", s.ses_from_email))
+    msg["From"] = formataddr(("Staffium", s.ses_from_email))
     msg["To"] = row["recipient_email"]
-    msg["Message-ID"] = make_msgid(domain="shortlist")
+    msg["Message-ID"] = make_msgid(domain="staffium")
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText(text, "plain", "utf-8"))
     alt.attach(MIMEText(markup, "html", "utf-8"))
@@ -142,8 +142,22 @@ def build_message(row: dict) -> MIMEMultipart:
 
 async def send(row: dict) -> None:
     s = get_settings()
+
     raw = build_message(row).as_bytes()
-    kwargs = {"Content": {"Raw": {"Data": raw}}}
+
+    kwargs = {
+        "FromEmailAddress": s.ses_from_email,
+        "Destination": {
+            "ToAddresses": [row["recipient_email"]]
+        },
+        "Content": {
+            "Raw": {
+                "Data": raw
+            }
+        },
+    }
+
     if s.ses_configuration_set:
         kwargs["ConfigurationSetName"] = s.ses_configuration_set
+
     await asyncio.to_thread(_ses().send_email, **kwargs)

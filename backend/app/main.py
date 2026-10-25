@@ -21,7 +21,7 @@ from .security import BodySizeLimitMiddleware, SecurityHeadersMiddleware, limite
 from .services import embeddings, worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("shortlist")
+log = logging.getLogger("staffium")
 
 
 @asynccontextmanager
@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(
-        title="Shortlist API",
+        title="Staffium API",
         version="1.0.0",
         lifespan=lifespan,
         docs_url=None if s.is_production else "/docs",      # no public API explorer in production
@@ -58,12 +58,13 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
 
     # Middleware runs outermost-last: security headers wrap everything, including CORS preflights
-    # and 413/429 responses.
+    # and 413/429 responses. CORS sits outside the body limit so a 413 still carries the CORS
+    # header and the browser can show its message instead of a generic network error.
     app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(BodySizeLimitMiddleware, upload_paths=("/api/resumes",))
     app.add_middleware(CORSMiddleware, allow_origins=[s.frontend_origin], allow_credentials=False,
                        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
                        allow_headers=["Authorization", "Content-Type"], max_age=600)
-    app.add_middleware(BodySizeLimitMiddleware, upload_paths=("/api/resumes",))
     app.add_middleware(SecurityHeadersMiddleware)
 
     for r in (auth, common, applicant, resumes, jobs, applications, companies, recruiter, recruiter_ops, reviews):

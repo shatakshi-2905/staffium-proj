@@ -15,7 +15,7 @@ from . import embeddings, llm, storage
 from .parsing import (embedding_text, extract_text, normalize_skill, parse_month, rule_based_extract, scan_text_for_skills,
                       without_skill_lists)
 
-log = logging.getLogger("shortlist.resumes")
+log = logging.getLogger("staffium.resumes")
 MAX_ATTEMPTS = 3
 _slots = asyncio.Semaphore(2)   # PDF parsing + embedding are CPU-bound; cap concurrent work per instance
 

@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from ..config import get_settings
 
-log = logging.getLogger("shortlist.llm")
+log = logging.getLogger("staffium.llm")
 _client = None
 _semaphore = asyncio.Semaphore(3)   # cap concurrent Bedrock calls per instance
 

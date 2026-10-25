@@ -17,7 +17,7 @@ from ..db import system_tx
 from . import llm, mailer
 from .resume_pipeline import MAX_ATTEMPTS, process_resume
 
-log = logging.getLogger("shortlist.worker")
+log = logging.getLogger("staffium.worker")
 MAX_EMAIL_ATTEMPTS = 5
 
 
@@ -34,7 +34,7 @@ async def deliver_outbox(batch: int = 20) -> int:
             await _mark(row["outbox_id"], "SENT", None)
         except Exception as exc:
             final = row["attempts"] >= MAX_EMAIL_ATTEMPTS
-            log.warning("email %s failed (attempt %s): %s", row["outbox_id"], row["attempts"], type(exc).__name__)
+            log.warning("email %s failed (attempt %s): %s", row["outbox_id"], row["attempts"], str(exc),)
             await _mark(row["outbox_id"], "FAILED" if final else "PENDING", f"{type(exc).__name__}: {exc}"[:500])
     return len(rows)
 
