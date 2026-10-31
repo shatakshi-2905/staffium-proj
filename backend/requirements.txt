@@ -8,7 +8,7 @@ PyJWT[crypto]==2.15.0
 httpx==0.28.1
 slowapi==0.1.10
 python-multipart==0.0.32
-boto3==1.43.117
+boto3==1.43.120
 pymupdf==2.0
 python-docx==1.2.0
 icalendar==7.3.0
